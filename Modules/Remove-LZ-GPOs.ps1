@@ -20,7 +20,6 @@ function Remove-LZGPOs {
         [string] $LogPath
     )
 
-    $logScript     = "$PSScriptRoot\..\Helpers\Write-LZLog.ps1"
     $wmiContainer  = "CN=SOM,CN=WMIPolicy,CN=System,$DomainDN"
 
     for ($n = 0; $n -lt $TierCount; $n++) {
@@ -36,14 +35,14 @@ function Remove-LZGPOs {
                 try {
                     Remove-GPLink -Guid $gpo.Id -Target $tierOuDN -Domain $DomainFQDN `
                         -ErrorAction Stop
-                    & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Removed' `
+                    Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Removed' `
                         -ObjectType 'GPOLink' -ObjectDN $tierOuDN `
                         -Detail "$gpoName link removed from $tierOuDN"
                     Write-Host "  [Removed] $gpoName link from $tierOuDN"
                 }
                 catch {
                     # Link may already be absent; log and continue.
-                    & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Skipped' `
+                    Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Skipped' `
                         -ObjectType 'GPOLink' -ObjectDN $tierOuDN `
                         -Detail "Link removal skipped or already absent: $($_.Exception.Message)"
                 }
@@ -52,13 +51,13 @@ function Remove-LZGPOs {
                 try {
                     Set-GPInheritance -Target $tierOuDN -Domain $DomainFQDN `
                         -IsBlocked No -ErrorAction Stop
-                    & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Modified' `
+                    Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Modified' `
                         -ObjectType 'OU' -ObjectDN $tierOuDN `
                         -Detail "GPO inheritance re-enabled on $tierOuDN"
                     Write-Host "  [Modified] GPO inheritance re-enabled on $tierOuDN"
                 }
                 catch {
-                    & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
+                    Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
                         -ObjectType 'OU' -ObjectDN $tierOuDN `
                         -Detail "Failed to re-enable inheritance: $($_.Exception.Message)"
                     Write-Warning "  [Error] Inheritance re-enable failed on $tierOuDN: $($_.Exception.Message)"
@@ -66,19 +65,19 @@ function Remove-LZGPOs {
 
                 # Remove the GPO object itself.
                 Remove-GPO -Name $gpoName -Domain $DomainFQDN -ErrorAction Stop
-                & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Removed' `
+                Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Removed' `
                     -ObjectType 'GPO' -ObjectDN $gpoName `
                     -Detail "GPO $gpoName removed"
                 Write-Host "  [Removed] GPO $gpoName"
             }
             else {
-                & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Skipped' `
+                Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Skipped' `
                     -ObjectType 'GPO' -ObjectDN $gpoName -Detail "$gpoName not found"
                 Write-Host "  [Skipped] GPO $gpoName not found"
             }
         }
         catch {
-            & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
                 -ObjectType 'GPO' -ObjectDN $gpoName -Detail $_.Exception.Message
             Write-Warning "  [Error] GPO removal failed for $gpoName : $($_.Exception.Message)"
         }
@@ -90,20 +89,20 @@ function Remove-LZGPOs {
                               -ErrorAction SilentlyContinue
             if ($wmiFilter) {
                 Remove-ADObject -Identity $wmiFilter.DistinguishedName -Confirm:$false -ErrorAction Stop
-                & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Removed' `
+                Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Removed' `
                     -ObjectType 'WMIFilter' -ObjectDN $wmiFilter.DistinguishedName `
                     -Detail "WMI filter $filterName removed"
                 Write-Host "  [Removed] WMI filter $filterName"
             }
             else {
-                & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Skipped' `
+                Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Skipped' `
                     -ObjectType 'WMIFilter' -ObjectDN "CN=$filterName,$wmiContainer" `
                     -Detail "$filterName not found in CN=SOM"
                 Write-Host "  [Skipped] WMI filter $filterName not found"
             }
         }
         catch {
-            & $logScript -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
                 -ObjectType 'WMIFilter' -ObjectDN "CN=$filterName,$wmiContainer" `
                 -Detail $_.Exception.Message
             Write-Warning "  [Error] WMI filter removal failed for $filterName : $($_.Exception.Message)"

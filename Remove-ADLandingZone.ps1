@@ -116,6 +116,15 @@ if (-not $Force) {
 
 #endregion
 
+#region --- Helpers --------------------------------------------------------------
+
+# Dot-source Write-LZLog so the function and its $script:LZEventLogReady flag
+# are shared across all removal modules (which are also dot-sourced below).
+# This mirrors the pattern used by Deploy-ADLandingZone.ps1.
+. "$PSScriptRoot\Helpers\Write-LZLog.ps1"
+
+#endregion
+
 #region --- Logging setup --------------------------------------------------------
 
 $logDir = Split-Path -Parent $LogPath
@@ -153,27 +162,27 @@ Write-Host ''
 
 # Phase 1: Protected Users
 Write-Host "[Phase 1/6] Removing Protected Users membership..."
-& "$modulesPath\Remove-LZ-ProtectedUsers.ps1" @common
+. "$modulesPath\Remove-LZ-ProtectedUsers.ps1" @common
 
 # Phase 2 & 3: Auth Silos + Auth Policies (handled in single module)
 Write-Host "[Phase 2/6] Removing Authentication Policy Silos and Policies..."
-& "$modulesPath\Remove-LZ-AuthPolicies.ps1" @common
+. "$modulesPath\Remove-LZ-AuthPolicies.ps1" @common
 
 # Phase 3: gMSAs (must precede OU removal)
 Write-Host "[Phase 3/6] Removing gMSA accounts..."
-& "$modulesPath\Remove-LZ-gMSAs.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
+. "$modulesPath\Remove-LZ-gMSAs.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
 
 # Phase 4: GPOs + WMI filters
 Write-Host "[Phase 4/6] Removing GPOs and WMI filters..."
-& "$modulesPath\Remove-LZ-GPOs.ps1" @common
+. "$modulesPath\Remove-LZ-GPOs.ps1" @common
 
 # Phase 5: Security groups + container
 Write-Host "[Phase 5/6] Removing security groups and CN=_LZ_Groups container..."
-& "$modulesPath\Remove-LZ-Groups.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
+. "$modulesPath\Remove-LZ-Groups.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
 
 # Phase 6: OUs (sub-OUs first, then tier OUs, then Quarantine)
 Write-Host "[Phase 6/6] Removing OUs..."
-& "$modulesPath\Remove-LZ-OUs.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
+. "$modulesPath\Remove-LZ-OUs.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
 
 #endregion
 

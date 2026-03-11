@@ -28,14 +28,14 @@ function Remove-LZProtectedUsers {
 
         if ($isMember) {
             Remove-ADGroupMember -Identity $protectedUsers -Members $groupName -Confirm:$false -ErrorAction Stop
-            & "$PSScriptRoot\..\Helpers\Write-LZLog.ps1" -LogPath $LogPath `
+            Write-LZLog -LogPath $LogPath `
                 -Module 'RemoveProtectedUsers' -Action 'Removed' -ObjectType 'GroupMembership' `
                 -ObjectDN "CN=$groupName,CN=Protected Users,$DomainDN" `
                 -Detail "$groupName removed from Protected Users"
             Write-Host "  [Removed] $groupName removed from Protected Users"
         }
         else {
-            & "$PSScriptRoot\..\Helpers\Write-LZLog.ps1" -LogPath $LogPath `
+            Write-LZLog -LogPath $LogPath `
                 -Module 'RemoveProtectedUsers' -Action 'Skipped' -ObjectType 'GroupMembership' `
                 -ObjectDN "CN=$groupName,CN=Protected Users,$DomainDN" `
                 -Detail "$groupName was not a member of Protected Users"
@@ -43,7 +43,7 @@ function Remove-LZProtectedUsers {
         }
     }
     catch {
-        & "$PSScriptRoot\..\Helpers\Write-LZLog.ps1" -LogPath $LogPath `
+        Write-LZLog -LogPath $LogPath `
             -Module 'RemoveProtectedUsers' -Action 'Error' -ObjectType 'GroupMembership' `
             -ObjectDN "CN=$groupName,CN=Protected Users,$DomainDN" `
             -Detail $_.Exception.Message

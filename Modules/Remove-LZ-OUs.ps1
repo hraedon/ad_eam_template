@@ -22,8 +22,6 @@ function Remove-LZOU {
         [string] $LogPath
     )
 
-    $logScript = "$PSScriptRoot\..\Helpers\Write-LZLog.ps1"
-
     try {
         $ou = Get-ADOrganizationalUnit -Identity $OuDN -ErrorAction SilentlyContinue
         if ($ou) {
@@ -31,18 +29,18 @@ function Remove-LZOU {
             Set-ADOrganizationalUnit -Identity $OuDN `
                 -ProtectedFromAccidentalDeletion $false -ErrorAction Stop
             Remove-ADOrganizationalUnit -Identity $OuDN -Confirm:$false -ErrorAction Stop
-            & $logScript -LogPath $LogPath -Module 'RemoveOUs' -Action 'Removed' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveOUs' -Action 'Removed' `
                 -ObjectType 'OU' -ObjectDN $OuDN -Detail "$Label removed"
             Write-Host "  [Removed] $Label ($OuDN)"
         }
         else {
-            & $logScript -LogPath $LogPath -Module 'RemoveOUs' -Action 'Skipped' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveOUs' -Action 'Skipped' `
                 -ObjectType 'OU' -ObjectDN $OuDN -Detail "$Label not found"
             Write-Host "  [Skipped] $Label not found"
         }
     }
     catch {
-        & $logScript -LogPath $LogPath -Module 'RemoveOUs' -Action 'Error' `
+        Write-LZLog -LogPath $LogPath -Module 'RemoveOUs' -Action 'Error' `
             -ObjectType 'OU' -ObjectDN $OuDN -Detail $_.Exception.Message
         Write-Warning "  [Error] $Label : $($_.Exception.Message)"
     }

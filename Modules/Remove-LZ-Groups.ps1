@@ -19,7 +19,6 @@ function Remove-LZGroups {
         [string] $LogPath
     )
 
-    $logScript    = "$PSScriptRoot\..\Helpers\Write-LZLog.ps1"
     $containerDN  = "CN=_LZ_Groups,$DomainDN"
 
     # Build the full list of groups to remove, in a safe removal order.
@@ -43,20 +42,20 @@ function Remove-LZGroups {
             $grp = Get-ADGroup -Identity $groupName -ErrorAction SilentlyContinue
             if ($grp) {
                 Remove-ADGroup -Identity $groupName -Confirm:$false -ErrorAction Stop
-                & $logScript -LogPath $LogPath -Module 'RemoveGroups' -Action 'Removed' `
+                Write-LZLog -LogPath $LogPath -Module 'RemoveGroups' -Action 'Removed' `
                     -ObjectType 'Group' -ObjectDN $grp.DistinguishedName `
                     -Detail "Security group $groupName removed"
                 Write-Host "  [Removed] $groupName"
             }
             else {
-                & $logScript -LogPath $LogPath -Module 'RemoveGroups' -Action 'Skipped' `
+                Write-LZLog -LogPath $LogPath -Module 'RemoveGroups' -Action 'Skipped' `
                     -ObjectType 'Group' -ObjectDN "CN=$groupName,$containerDN" `
                     -Detail "$groupName not found"
                 Write-Host "  [Skipped] $groupName not found"
             }
         }
         catch {
-            & $logScript -LogPath $LogPath -Module 'RemoveGroups' -Action 'Error' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveGroups' -Action 'Error' `
                 -ObjectType 'Group' -ObjectDN "CN=$groupName,$containerDN" `
                 -Detail $_.Exception.Message
             Write-Warning "  [Error] $groupName : $($_.Exception.Message)"
@@ -68,19 +67,19 @@ function Remove-LZGroups {
         $container = Get-ADObject -Identity $containerDN -ErrorAction SilentlyContinue
         if ($container) {
             Remove-ADObject -Identity $containerDN -Confirm:$false -ErrorAction Stop
-            & $logScript -LogPath $LogPath -Module 'RemoveGroups' -Action 'Removed' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveGroups' -Action 'Removed' `
                 -ObjectType 'Container' -ObjectDN $containerDN `
                 -Detail 'CN=_LZ_Groups container removed'
             Write-Host "  [Removed] CN=_LZ_Groups container"
         }
         else {
-            & $logScript -LogPath $LogPath -Module 'RemoveGroups' -Action 'Skipped' `
+            Write-LZLog -LogPath $LogPath -Module 'RemoveGroups' -Action 'Skipped' `
                 -ObjectType 'Container' -ObjectDN $containerDN -Detail 'Container not found'
             Write-Host "  [Skipped] CN=_LZ_Groups container not found"
         }
     }
     catch {
-        & $logScript -LogPath $LogPath -Module 'RemoveGroups' -Action 'Error' `
+        Write-LZLog -LogPath $LogPath -Module 'RemoveGroups' -Action 'Error' `
             -ObjectType 'Container' -ObjectDN $containerDN -Detail $_.Exception.Message
         Write-Warning "  [Error] Container removal: $($_.Exception.Message)"
     }

@@ -18,15 +18,10 @@
         script (typically LocalMachine\My or CurrentUser\My).
 
     Scripts signed:
-      Deploy-ADLandingZone.ps1
-      Helpers\Write-LZLog.ps1
-      Helpers\Test-LZPreFlight.ps1
-      Helpers\Sign-LZScripts.ps1  (this file)
-      Modules\Deploy-LZ-OUs.ps1
-      Modules\Deploy-LZ-Groups.ps1
-      Modules\Deploy-LZ-ACLs.ps1
-      Modules\Deploy-LZ-AuthPolicies.ps1
-      Modules\Deploy-LZ-ProtectedUsers.ps1
+      All .ps1 files found recursively under the deployer root (the directory
+      containing this file's parent). This includes all deploy modules, removal
+      modules, helpers, operator tools, and Pester test files. New scripts added
+      to the tree are automatically included without updating this helper.
 
 .PARAMETER Thumbprint
     SHA-1 thumbprint of the code-signing certificate to use.
@@ -90,19 +85,14 @@ Write-Host ''
 
 # ------------------------------------------------------------------
 # Enumerate all .ps1 files in the deployer tree.
+# Using a recursive glob rather than a hardcoded list so that new
+# scripts are automatically included without editing this helper.
 # ------------------------------------------------------------------
 $root = Split-Path -Parent $PSScriptRoot   # one level up from Helpers\
 
 $scripts = @(
-    Join-Path $root 'Deploy-ADLandingZone.ps1'
-    Join-Path $root 'Helpers\Write-LZLog.ps1'
-    Join-Path $root 'Helpers\Test-LZPreFlight.ps1'
-    Join-Path $root 'Helpers\Sign-LZScripts.ps1'
-    Join-Path $root 'Modules\Deploy-LZ-OUs.ps1'
-    Join-Path $root 'Modules\Deploy-LZ-Groups.ps1'
-    Join-Path $root 'Modules\Deploy-LZ-ACLs.ps1'
-    Join-Path $root 'Modules\Deploy-LZ-AuthPolicies.ps1'
-    Join-Path $root 'Modules\Deploy-LZ-ProtectedUsers.ps1'
+    Get-ChildItem -Path $root -Recurse -Filter '*.ps1' |
+        Select-Object -ExpandProperty FullName
 )
 
 $signed  = 0
