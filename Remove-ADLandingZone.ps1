@@ -152,27 +152,27 @@ $common = @{
 Write-Host ''
 
 # Phase 1: Protected Users
-Write-Host "[Phase 1/7] Removing Protected Users membership..."
+Write-Host "[Phase 1/6] Removing Protected Users membership..."
 & "$modulesPath\Remove-LZ-ProtectedUsers.ps1" @common
 
 # Phase 2 & 3: Auth Silos + Auth Policies (handled in single module)
-Write-Host "[Phase 2/7] Removing Authentication Policy Silos and Policies..."
+Write-Host "[Phase 2/6] Removing Authentication Policy Silos and Policies..."
 & "$modulesPath\Remove-LZ-AuthPolicies.ps1" @common
 
 # Phase 3: gMSAs (must precede OU removal)
-Write-Host "[Phase 3/7] Removing gMSA accounts..."
+Write-Host "[Phase 3/6] Removing gMSA accounts..."
 & "$modulesPath\Remove-LZ-gMSAs.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
 
 # Phase 4: GPOs + WMI filters
-Write-Host "[Phase 4/7] Removing GPOs and WMI filters..."
+Write-Host "[Phase 4/6] Removing GPOs and WMI filters..."
 & "$modulesPath\Remove-LZ-GPOs.ps1" @common
 
 # Phase 5: Security groups + container
-Write-Host "[Phase 5/7] Removing security groups and CN=_LZ_Groups container..."
+Write-Host "[Phase 5/6] Removing security groups and CN=_LZ_Groups container..."
 & "$modulesPath\Remove-LZ-Groups.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
 
 # Phase 6: OUs (sub-OUs first, then tier OUs, then Quarantine)
-Write-Host "[Phase 6/7] Removing OUs..."
+Write-Host "[Phase 6/6] Removing OUs..."
 & "$modulesPath\Remove-LZ-OUs.ps1" -TierCount $TierCount -DomainDN $DomainDN -LogPath $LogPath
 
 #endregion
@@ -180,7 +180,8 @@ Write-Host "[Phase 6/7] Removing OUs..."
 #region --- Summary (read from CSV — source of truth) ----------------------------
 
 Write-Host ''
-Write-Host "[Phase 7/7] Summary"
+Write-Host '========================================================================'
+Write-Host '  Removal Summary'
 Write-Host '========================================================================'
 
 try {

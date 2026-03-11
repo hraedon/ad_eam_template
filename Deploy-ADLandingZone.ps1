@@ -15,8 +15,8 @@
         5. Auth             (Deploy-LZAuthPolicies)
         6. Protected        (Deploy-LZProtectedUsers)
         7. T0DeviceGroup    (Deploy-LZT0DeviceGroup)   [v2]
-        8. gMSAs            (Deploy-LZgMSAs)           [v2, skipped if -DeployGmsas:$false]
-        9. GPOs             (Deploy-LZGPOs)            [v2, skipped if -DeployGpos:$false]
+        8. gMSAs            (Deploy-LZgMSAs)           [v2, skip with -SkipGmsas]
+        9. GPOs             (Deploy-LZGPOs)            [v2, skip with -SkipGpos]
 
     Domain context (FQDN, DN) is derived from the ambient session via
     Get-ADDomain. No domain values are hardcoded or accepted as parameters.
@@ -50,7 +50,7 @@
 .EXAMPLE
     .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGpos
 #>
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)]
     [ValidateRange(2, 10)]
@@ -111,7 +111,7 @@ if ($logDir -and -not (Test-Path $logDir)) {
 
 Write-Host ''
 Write-Host ('=' * 72) -ForegroundColor Cyan
-Write-Host '  AD Landing Zone Deployer  [v2]' -ForegroundColor Cyan
+Write-Host '  AD Landing Zone Deployer  [v2.5]' -ForegroundColor Cyan
 Write-Host "  TierCount   : $TierCount" -ForegroundColor Cyan
 Write-Host "  LogPath     : $LogPath" -ForegroundColor Cyan
 Write-Host "  SkipGmsas   : $($SkipGmsas.IsPresent)" -ForegroundColor Cyan
