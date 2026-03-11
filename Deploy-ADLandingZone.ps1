@@ -8,12 +8,15 @@
     safe to re-run; existing objects are skipped and logged, never deleted.
 
     Execution order enforced by this script:
-        1. Pre-Flight  (Test-LZPreFlight)
-        2. OUs         (Deploy-LZOUs)
-        3. Groups      (Deploy-LZGroups)
-        4. ACLs        (Deploy-LZACLs)
-        5. Auth        (Deploy-LZAuthPolicies)
-        6. Protected   (Deploy-LZProtectedUsers)
+        1. Pre-Flight       (Test-LZPreFlight)
+        2. OUs              (Deploy-LZOUs)
+        3. Groups           (Deploy-LZGroups)
+        4. ACLs             (Deploy-LZACLs)
+        5. Auth             (Deploy-LZAuthPolicies)
+        6. Protected        (Deploy-LZProtectedUsers)
+        7. T0DeviceGroup    (Deploy-LZT0DeviceGroup)   [v2]
+        8. gMSAs            (Deploy-LZgMSAs)           [v2, skipped if -DeployGmsas:$false]
+        9. GPOs             (Deploy-LZGPOs)            [v2, skipped if -DeployGpos:$false]
 
     Domain context (FQDN, DN) is derived from the ambient session via
     Get-ADDomain. No domain values are hardcoded or accepted as parameters.
@@ -28,8 +31,27 @@
     Full path for the structured CSV deployment log.
     The file and its parent directory are created if they do not exist.
 
+.PARAMETER DeployGmsas
+    When $true (default), Phase 8 provisions one gMSA per tier plus the
+    associated GS-LZ-T{n}-gMSAHosts groups. Set to $false to skip gMSA
+    provisioning, for example when a KDS Root Key is not yet effective.
+    Phase 7 (T0DeviceGroup) always runs regardless of this switch.
+
+.PARAMETER DeployGpos
+    When $true (default), Phase 9 creates empty GPO scaffolds for each tier
+    OU (LZ-T{n}-GPO), links them, creates WMI filter stubs, and blocks
+    GPO inheritance on each tier OU. Set to $false to skip GPO provisioning,
+    for example when running in an environment without GPMC RSAT installed or
+    when GPO management is handled by a separate team.
+
 .EXAMPLE
     .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv
+
+.EXAMPLE
+    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -DeployGmsas:$false
+
+.EXAMPLE
+    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -DeployGpos:$false
 #>
 [CmdletBinding()]
 param(
@@ -38,7 +60,11 @@ param(
     [int]$TierCount,
 
     [Parameter(Mandatory)]
-    [string]$LogPath
+    [string]$LogPath,
+
+    [bool]$DeployGmsas = $true,
+
+    [bool]$DeployGpos  = $true
 )
 
 Set-StrictMode -Version Latest
@@ -55,6 +81,9 @@ $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\Modules\Deploy-LZ-ACLs.ps1"
 . "$PSScriptRoot\Modules\Deploy-LZ-AuthPolicies.ps1"
 . "$PSScriptRoot\Modules\Deploy-LZ-ProtectedUsers.ps1"
+. "$PSScriptRoot\Modules\Deploy-LZ-T0DeviceGroup.ps1"
+. "$PSScriptRoot\Modules\Deploy-LZ-gMSAs.ps1"
+. "$PSScriptRoot\Modules\Deploy-LZ-GPOs.ps1"
 
 # ------------------------------------------------------------------
 # Ensure the ActiveDirectory module is available.
@@ -85,10 +114,12 @@ if ($logDir -and -not (Test-Path $logDir)) {
 
 Write-Host ''
 Write-Host ('=' * 72) -ForegroundColor Cyan
-Write-Host '  AD Landing Zone Deployer' -ForegroundColor Cyan
-Write-Host "  TierCount : $TierCount" -ForegroundColor Cyan
-Write-Host "  LogPath   : $LogPath" -ForegroundColor Cyan
-Write-Host "  Started   : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC+0 (local clock)" -ForegroundColor Cyan
+Write-Host '  AD Landing Zone Deployer  [v2]' -ForegroundColor Cyan
+Write-Host "  TierCount   : $TierCount" -ForegroundColor Cyan
+Write-Host "  LogPath     : $LogPath" -ForegroundColor Cyan
+Write-Host "  DeployGmsas : $DeployGmsas" -ForegroundColor Cyan
+Write-Host "  DeployGpos  : $DeployGpos" -ForegroundColor Cyan
+Write-Host "  Started     : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC+0 (local clock)" -ForegroundColor Cyan
 Write-Host ('=' * 72) -ForegroundColor Cyan
 Write-Host ''
 
@@ -98,7 +129,7 @@ Write-Host ''
 # object consumed by all subsequent phases. Any failure throws and
 # halts execution before any AD object is created.
 # ------------------------------------------------------------------
-Write-Host '[Phase 1/6] Pre-Flight Checks' -ForegroundColor Cyan
+Write-Host '[Phase 1/9] Pre-Flight Checks' -ForegroundColor Cyan
 
 $context = Test-LZPreFlight -LogPath $LogPath -TierCount $TierCount
 
@@ -110,7 +141,7 @@ Write-Host ''
 # ------------------------------------------------------------------
 # Phase 2 -- OU Structure
 # ------------------------------------------------------------------
-Write-Host '[Phase 2/6] Deploying OU Structure' -ForegroundColor Cyan
+Write-Host '[Phase 2/9] Deploying OU Structure' -ForegroundColor Cyan
 
 Deploy-LZOUs -DomainDN $DomainDN -TierCount $TierCount -LogPath $LogPath
 
@@ -120,7 +151,7 @@ Write-Host ''
 # Phase 3 -- Security Groups
 # Groups must exist before ACLs reference them in Phase 4.
 # ------------------------------------------------------------------
-Write-Host '[Phase 3/6] Deploying Security Groups' -ForegroundColor Cyan
+Write-Host '[Phase 3/9] Deploying Security Groups' -ForegroundColor Cyan
 
 Deploy-LZGroups -DomainDN $DomainDN -TierCount $TierCount -LogPath $LogPath
 
@@ -130,7 +161,7 @@ Write-Host ''
 # Phase 4 -- ACL Delegations
 # Depends on groups from Phase 3 existing.
 # ------------------------------------------------------------------
-Write-Host '[Phase 4/6] Applying ACL Delegations' -ForegroundColor Cyan
+Write-Host '[Phase 4/9] Applying ACL Delegations' -ForegroundColor Cyan
 
 Deploy-LZACLs -DomainDN $DomainDN -TierCount $TierCount -LogPath $LogPath
 
@@ -139,7 +170,7 @@ Write-Host ''
 # ------------------------------------------------------------------
 # Phase 5 -- Authentication Policies and Silos
 # ------------------------------------------------------------------
-Write-Host '[Phase 5/6] Deploying Authentication Policies and Silos' -ForegroundColor Cyan
+Write-Host '[Phase 5/9] Deploying Authentication Policies and Silos' -ForegroundColor Cyan
 
 Deploy-LZAuthPolicies -DomainDN $DomainDN -TierCount $TierCount -LogPath $LogPath
 
@@ -148,9 +179,68 @@ Write-Host ''
 # ------------------------------------------------------------------
 # Phase 6 -- Protected Users
 # ------------------------------------------------------------------
-Write-Host '[Phase 6/6] Configuring Protected Users Membership' -ForegroundColor Cyan
+Write-Host '[Phase 6/9] Configuring Protected Users Membership' -ForegroundColor Cyan
 
 Deploy-LZProtectedUsers -DomainDN $DomainDN -LogPath $LogPath
+
+Write-Host ''
+
+# ------------------------------------------------------------------
+# Phase 7 -- T0 Device Group and Auth Policy Upgrade  [v2]
+# Creates GS-LZ-T0-Devices and upgrades the T0 auth policy SDDL
+# from the baseline domain-joined condition to a group-SID condition.
+# ------------------------------------------------------------------
+Write-Host '[Phase 7/9] Deploying T0 Device Group and Upgrading Auth Policy' -ForegroundColor Cyan
+
+Deploy-LZT0DeviceGroup -DomainDN $DomainDN -LogPath $LogPath
+
+Write-Host ''
+
+# ------------------------------------------------------------------
+# Phase 8 -- gMSA Provisioning  [v2]
+# Skipped if -DeployGmsas:$false (e.g. KDS Root Key not yet ready).
+# ------------------------------------------------------------------
+if ($DeployGmsas) {
+    Write-Host '[Phase 8/9] Provisioning Group Managed Service Accounts' -ForegroundColor Cyan
+
+    Deploy-LZgMSAs `
+        -DomainDN   $DomainDN `
+        -DomainFQDN $DomainFQDN `
+        -TierCount  $TierCount `
+        -LogPath    $LogPath
+}
+else {
+    Write-Host '[Phase 8/9] gMSA Provisioning SKIPPED (-DeployGmsas:$false)' -ForegroundColor Yellow
+
+    Write-LZLog -LogPath $LogPath -Module 'Orchestrator' -Action 'Skipped' `
+        -ObjectType 'gMSA' -ObjectDN $DomainDN `
+        -Detail "gMSA provisioning skipped. -DeployGmsas was set to false. Re-run with -DeployGmsas:$true when a KDS Root Key is effective."
+}
+
+Write-Host ''
+
+# ------------------------------------------------------------------
+# Phase 9 -- GPO Scaffolding  [v2]
+# Creates empty GPOs for each tier, links them, adds WMI filter stubs,
+# and blocks GPO inheritance on each tier OU.
+# Skipped if -DeployGpos:$false or if the GroupPolicy module is absent.
+# ------------------------------------------------------------------
+if ($DeployGpos) {
+    Write-Host '[Phase 9/9] Deploying GPO Scaffolding' -ForegroundColor Cyan
+
+    Deploy-LZGPOs `
+        -DomainDN   $DomainDN `
+        -DomainFQDN $DomainFQDN `
+        -TierCount  $TierCount `
+        -LogPath    $LogPath
+}
+else {
+    Write-Host '[Phase 9/9] GPO Scaffolding SKIPPED (-DeployGpos:$false)' -ForegroundColor Yellow
+
+    Write-LZLog -LogPath $LogPath -Module 'Orchestrator' -Action 'Skipped' `
+        -ObjectType 'GPO' -ObjectDN $DomainDN `
+        -Detail "GPO scaffolding skipped. -DeployGpos was set to false. Re-run with -DeployGpos:`$true to create GPO scaffolds."
+}
 
 Write-Host ''
 
