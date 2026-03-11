@@ -42,11 +42,11 @@ prevent lateral movement:
 - **Tiered Isolation:** Accounts enrolled in a Silo (e.g., `LZ-T0-Silo`) are
   bound by the corresponding Authentication Policy and cannot authenticate
   outside its restrictions.
-- **T0 Device Restriction (baseline):** Tier 0 accounts are restricted to
-  authenticating from domain-joined devices. This is the v1 baseline.
-  Full restriction to designated Privileged Access Workstations (PAWs) requires
-  populating a T0 device security group and updating `LZ-T0-AuthPolicy` with a
-  group-membership SDDL condition -- this is a migration-phase action.
+- **T0 Device Restriction:** The `GS-LZ-T0-Devices` group is created and the
+  `LZ-T0-AuthPolicy` SDDL is set to `Member_of_any {SID(GS-LZ-T0-Devices)}`.
+  Tier 0 accounts are restricted to authenticating from devices that are members
+  of this group. The group starts empty — populate it with T0 PAW computer
+  accounts during the migration phase to activate the restriction.
 - **Shortened TGT Lifetimes:** Ticket Granting Ticket (TGT) lifetimes are
   significantly reduced to limit the window for credential theft:
 
@@ -117,7 +117,24 @@ Review the CSV log after the run. The summary printed at the end is derived
 from the CSV, so a zero-row log despite console output indicates a log write
 problem worth investigating before proceeding.
 
-### Step 3: Migration (Manual)
+### Step 3: T0 GPO Hardening (Operator Action)
+
+After deployment, the `LZ-T0-GPO` scaffold exists but contains no security
+settings. Run the hardening script to populate it:
+
+```powershell
+.\Deploy-LZ-T0Hardening.ps1
+```
+
+**Run this only after verifying that all T0 admin accounts authenticate
+exclusively via Kerberos.** The hardening template denies interactive and RDP
+logon for T1/T2 admin groups on T0 assets. Applying it before Kerberos
+readiness is confirmed can lock you out of T0 infrastructure.
+
+The deployer prints a reminder notice at the end of its run — the notice
+includes this command and the rationale.
+
+### Step 4: Migration (Manual)
 
 The Landing Zone provides the structure, but you must move objects into it.
 This is a deliberate manual phase -- the deployer does not touch existing
@@ -136,7 +153,7 @@ objects.
 `GS-LZ-T0-Admins`:** confirm it can authenticate via Kerberos only and
 tolerate the 4-hour TGT limit. See the Protected Users warning in Section 2B.
 
-### Step 4: Silo Enrollment (Manual)
+### Step 5: Silo Enrollment (Manual)
 
 Moving an account into a tier OU does not automatically enroll it in the
 Authentication Policy Silo. Enrollment is a separate, explicit action:
@@ -161,17 +178,39 @@ requirements defined in Section 2A.
 | TGT Lifetime | Default 10 hours | T0: 4 hrs / T1: 8 hrs / T2: 10 hrs (silo-enforced) |
 | Legacy Auth (NTLM) | Often permitted | Blocked for T0 via Protected Users; audited at T1/T2 |
 | Read Access | Often unmanaged | Scoped via tiered Reader groups; LOM-compatible ACLs |
-| PAW Enforcement | None | Domain-joined baseline (v1); full PAW restriction in v2 |
+| PAW Enforcement | None | Domain-joined baseline (v1); PAW group restriction via `GS-LZ-T0-Devices` (v2) |
 
 ---
 
-## 5. What This Deployer Does Not Do (v1)
+## 5. What This Deployer Does Not Do
 
-- Create, link, or modify Group Policy Objects
-- Migrate existing AD objects into the LZ structure
-- Enroll individual accounts into Authentication Policy Silos
-- Configure cross-forest or cross-domain trusts
-- Provide cleanup or removal scripts
-- Integrate with Azure AD / Entra ID
-- Create a KDS Root Key (required for gMSA support, planned for v2)
-- Provision Group Managed Service Accounts (v2)
+- **Migrate existing AD objects** into the LZ structure — this is a deliberate
+  manual phase (see Step 4 above)
+- **Enroll individual accounts into Auth Policy Silos** — always an explicit
+  operator action via `Invoke-LZSiloEnrollment.ps1` (never automatic)
+- **Populate GPO security settings arbitrarily** — only the T0 hardening
+  template (Restricted Groups, Deny Logon) is in scope; use
+  `Deploy-LZ-T0Hardening.ps1` for that
+- **Configure cross-forest or cross-domain trusts**
+- **Integrate with Azure AD / Entra ID**
+- **Create a KDS Root Key** — checked in pre-flight and warned if absent; key
+  creation is a deliberate manual administrative action
+  (`Add-KdsRootKey -EffectiveImmediately` in a lab; allow 10 hours in
+  production before running Phase 8)
+
+### Test Coverage
+
+A Pester test suite (`Tests/Invoke-LZPesterTests.ps1`) verifies deployed state
+against the live AD environment. Tests are read-only. Run after any deployment
+or incremental run:
+
+```powershell
+.\Tests\Invoke-LZPesterTests.ps1 -TierCount 3
+```
+
+The **Canary** tag (`-Tag Canary`) runs behavioral tests that go beyond
+structural checks: ProtectedFromAccidentalDeletion enforcement (verifies the
+flag actually blocks deletion), cross-tier write isolation (verifies T{n}-Admins
+cannot write to sibling tiers via ACL inspection), and AdminSDHolder protection
+(verifies no GS-LZ group has been accidentally applied to a built-in protected
+group like Domain Admins).

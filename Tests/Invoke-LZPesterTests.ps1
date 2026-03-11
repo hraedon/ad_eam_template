@@ -24,7 +24,11 @@
 
 .PARAMETER Tag
     Optional Pester tag filter. Valid tags: OUs, Groups, ACLs, AuthPolicies,
-    ProtectedUsers, gMSAs, GPOs. Omit to run all tests.
+    ProtectedUsers, gMSAs, GPOs, Canary. Omit to run all tests.
+
+    The Canary tag runs behavioral and isolation tests in LZ-Canary.Tests.ps1,
+    including ProtectedFromAccidentalDeletion enforcement, cross-tier write
+    isolation checks, and AdminSDHolder protection awareness.
 
 .EXAMPLE
     .\Tests\Invoke-LZPesterTests.ps1 -TierCount 3

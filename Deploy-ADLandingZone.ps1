@@ -31,27 +31,24 @@
     Full path for the structured CSV deployment log.
     The file and its parent directory are created if they do not exist.
 
-.PARAMETER DeployGmsas
-    When $true (default), Phase 8 provisions one gMSA per tier plus the
-    associated GS-LZ-T{n}-gMSAHosts groups. Set to $false to skip gMSA
-    provisioning, for example when a KDS Root Key is not yet effective.
+.PARAMETER SkipGmsas
+    When present, Phase 8 (gMSA provisioning) is skipped. Use this when a KDS
+    Root Key is not yet effective or replication is still in progress.
     Phase 7 (T0DeviceGroup) always runs regardless of this switch.
 
-.PARAMETER DeployGpos
-    When $true (default), Phase 9 creates empty GPO scaffolds for each tier
-    OU (LZ-T{n}-GPO), links them, creates WMI filter stubs, and blocks
-    GPO inheritance on each tier OU. Set to $false to skip GPO provisioning,
-    for example when running in an environment without GPMC RSAT installed or
-    when GPO management is handled by a separate team.
+.PARAMETER SkipGpos
+    When present, Phase 9 (GPO scaffolding) is skipped. Use this when running
+    in an environment without GPMC RSAT installed or when GPO management is
+    handled by a separate team.
 
 .EXAMPLE
     .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv
 
 .EXAMPLE
-    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -DeployGmsas:$false
+    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGmsas
 
 .EXAMPLE
-    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -DeployGpos:$false
+    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGpos
 #>
 [CmdletBinding()]
 param(
@@ -62,9 +59,9 @@ param(
     [Parameter(Mandatory)]
     [string]$LogPath,
 
-    [bool]$DeployGmsas = $true,
+    [switch]$SkipGmsas,
 
-    [bool]$DeployGpos  = $true
+    [switch]$SkipGpos
 )
 
 Set-StrictMode -Version Latest
@@ -117,8 +114,8 @@ Write-Host ('=' * 72) -ForegroundColor Cyan
 Write-Host '  AD Landing Zone Deployer  [v2]' -ForegroundColor Cyan
 Write-Host "  TierCount   : $TierCount" -ForegroundColor Cyan
 Write-Host "  LogPath     : $LogPath" -ForegroundColor Cyan
-Write-Host "  DeployGmsas : $DeployGmsas" -ForegroundColor Cyan
-Write-Host "  DeployGpos  : $DeployGpos" -ForegroundColor Cyan
+Write-Host "  SkipGmsas   : $($SkipGmsas.IsPresent)" -ForegroundColor Cyan
+Write-Host "  SkipGpos    : $($SkipGpos.IsPresent)" -ForegroundColor Cyan
 Write-Host "  Started     : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC+0 (local clock)" -ForegroundColor Cyan
 Write-Host ('=' * 72) -ForegroundColor Cyan
 Write-Host ''
@@ -200,7 +197,7 @@ Write-Host ''
 # Phase 8 -- gMSA Provisioning  [v2]
 # Skipped if -DeployGmsas:$false (e.g. KDS Root Key not yet ready).
 # ------------------------------------------------------------------
-if ($DeployGmsas) {
+if (-not $SkipGmsas) {
     Write-Host '[Phase 8/9] Provisioning Group Managed Service Accounts' -ForegroundColor Cyan
 
     Deploy-LZgMSAs `
@@ -210,11 +207,11 @@ if ($DeployGmsas) {
         -LogPath    $LogPath
 }
 else {
-    Write-Host '[Phase 8/9] gMSA Provisioning SKIPPED (-DeployGmsas:$false)' -ForegroundColor Yellow
+    Write-Host '[Phase 8/9] gMSA Provisioning SKIPPED (-SkipGmsas)' -ForegroundColor Yellow
 
     Write-LZLog -LogPath $LogPath -Module 'Orchestrator' -Action 'Skipped' `
         -ObjectType 'gMSA' -ObjectDN $DomainDN `
-        -Detail "gMSA provisioning skipped. -DeployGmsas was set to false. Re-run with -DeployGmsas:$true when a KDS Root Key is effective."
+        -Detail "gMSA provisioning skipped (-SkipGmsas). Re-run without -SkipGmsas when a KDS Root Key is effective."
 }
 
 Write-Host ''
@@ -225,7 +222,7 @@ Write-Host ''
 # and blocks GPO inheritance on each tier OU.
 # Skipped if -DeployGpos:$false or if the GroupPolicy module is absent.
 # ------------------------------------------------------------------
-if ($DeployGpos) {
+if (-not $SkipGpos) {
     Write-Host '[Phase 9/9] Deploying GPO Scaffolding' -ForegroundColor Cyan
 
     Deploy-LZGPOs `
@@ -235,11 +232,11 @@ if ($DeployGpos) {
         -LogPath    $LogPath
 }
 else {
-    Write-Host '[Phase 9/9] GPO Scaffolding SKIPPED (-DeployGpos:$false)' -ForegroundColor Yellow
+    Write-Host '[Phase 9/9] GPO Scaffolding SKIPPED (-SkipGpos)' -ForegroundColor Yellow
 
     Write-LZLog -LogPath $LogPath -Module 'Orchestrator' -Action 'Skipped' `
         -ObjectType 'GPO' -ObjectDN $DomainDN `
-        -Detail "GPO scaffolding skipped. -DeployGpos was set to false. Re-run with -DeployGpos:`$true to create GPO scaffolds."
+        -Detail "GPO scaffolding skipped (-SkipGpos). Re-run without -SkipGpos to create GPO scaffolds."
 }
 
 Write-Host ''
@@ -315,4 +312,35 @@ if ($totalErrors -gt 0) {
 Write-Host ''
 Write-Host "  Domain  : $DomainFQDN" -ForegroundColor Cyan
 Write-Host "  Finished: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor Cyan
+Write-Host ''
+
+# ------------------------------------------------------------------
+# Post-deployment: T0 hardening reminder
+#
+# Deploy-LZ-T0Hardening.ps1 is deliberately NOT called by this
+# orchestrator -- it populates Restricted Groups and Deny Logon
+# settings into LZ-T0-GPO, which should only be applied after the
+# operator has verified that all T0 accounts authenticate via
+# Kerberos. Applying it prematurely can lock administrators out of
+# T0 infrastructure. However, it must not be forgotten.
+# ------------------------------------------------------------------
+Write-Host ''
+Write-Host ('=' * 72) -ForegroundColor Yellow
+Write-Host '  NEXT STEP: T0 GPO Hardening' -ForegroundColor Yellow
+Write-Host ('=' * 72) -ForegroundColor Yellow
+Write-Host ''
+Write-Host '  Deploy-LZ-T0Hardening.ps1 has NOT been run automatically.' -ForegroundColor Yellow
+Write-Host ''
+Write-Host '  This script populates LZ-T0-GPO with:' -ForegroundColor Yellow
+Write-Host '    - Restricted Groups: locks local Administrators on T0 devices' -ForegroundColor Yellow
+Write-Host '      to Domain Admins + GS-LZ-T0-Admins only.' -ForegroundColor Yellow
+Write-Host '    - User Rights: denies interactive and RDP logon to T1/T2 admin' -ForegroundColor Yellow
+Write-Host '      groups on T0 assets.' -ForegroundColor Yellow
+Write-Host ''
+Write-Host '  Run ONLY after verifying that all T0 admin accounts authenticate' -ForegroundColor Yellow
+Write-Host '  exclusively via Kerberos. Premature application can lock you out.' -ForegroundColor Yellow
+Write-Host ''
+Write-Host "  Command: .\Deploy-LZ-T0Hardening.ps1" -ForegroundColor Yellow
+Write-Host ''
+Write-Host ('=' * 72) -ForegroundColor Yellow
 Write-Host ''

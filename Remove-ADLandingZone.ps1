@@ -28,15 +28,22 @@
 .PARAMETER LogPath
     Output path for the structured removal log (CSV).
 
-.PARAMETER Confirm
-    Switch. When specified, suppresses the confirmation prompt and proceeds
-    immediately. Use with caution in automated pipelines.
+.PARAMETER Force
+    Switch. When specified, suppresses the interactive confirmation prompt and
+    proceeds immediately. Use with caution in automated pipelines.
+
+    Without -Force, the script requires the operator to type 'REMOVE' at the
+    console prompt before any deletions occur.
+
+    Note: -WhatIf and -Confirm from PowerShell's SupportsShouldProcess are
+    available as built-in parameters but do not propagate to the individual
+    removal modules in v2.5. Full -WhatIf support is a v3 enhancement.
 
 .EXAMPLE
     .\Remove-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Remove.csv
 
 .EXAMPLE
-    .\Remove-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Remove.csv -Confirm
+    .\Remove-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Remove.csv -Force
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -47,7 +54,7 @@ param(
     [Parameter(Mandatory)]
     [string] $LogPath,
 
-    [switch] $Confirm
+    [switch] $Force
 )
 
 Set-StrictMode -Version Latest
@@ -99,7 +106,7 @@ Write-Host '  Objects you manually placed inside _LZ_ OUs will cause OU removal'
 Write-Host '  to fail. Remove or move them before proceeding.'
 Write-Host ''
 
-if (-not $Confirm) {
+if (-not $Force) {
     $answer = Read-Host "  Type 'REMOVE' to confirm permanent deletion, or anything else to abort"
     if ($answer -ne 'REMOVE') {
         Write-Host '  Aborted. No changes made.'

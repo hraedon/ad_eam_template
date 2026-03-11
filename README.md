@@ -95,11 +95,25 @@ use this in environments where the policy exists for security reasons.
 
 ## Parameters
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `TierCount` | `int` | — | Number of tiers to deploy. Minimum 2 (T0 + T1). Typical value 3. Maximum 10. |
-| `LogPath` | `string` | — | Full path for the structured CSV deployment log. Parent directory is created if absent. |
-| `DeployGpos` | `bool` | `$true` | Set to `$false` to skip Phase 9 (GPO scaffolding). Useful when GPMC is not installed or GPOs will be managed separately. |
+| Parameter | Type | Description |
+|---|---|---|
+| `TierCount` | `int` (mandatory) | Number of tiers to deploy. Minimum 2 (T0 + T1). Typical value 3. Maximum 10. |
+| `LogPath` | `string` (mandatory) | Full path for the structured CSV deployment log. Parent directory is created if absent. |
+| `SkipGmsas` | `switch` | When present, skips Phase 8 (gMSA provisioning). Use when a KDS Root Key is not yet effective. |
+| `SkipGpos` | `switch` | When present, skips Phase 9 (GPO scaffolding). Use when GPMC RSAT is not installed or GPOs are managed separately. |
+
+Both skip flags are absent by default — all phases run unless explicitly skipped.
+
+```powershell
+# Full deployment (all phases)
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv
+
+# Skip gMSA phase (KDS key not yet ready)
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGmsas
+
+# Skip both optional phases
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGmsas -SkipGpos
+```
 
 ---
 
@@ -149,7 +163,7 @@ Invoke-LZSiloEnrollment.ps1    -- Operator tool: enrolls accounts into Auth Poli
 
 Helpers\
   Write-LZLog.ps1              -- Structured logging helper
-  Test-LZPreFlight.ps1         -- Pre-flight validation (6 checks)
+  Test-LZPreFlight.ps1         -- Pre-flight validation (7 checks, incl. KDS replication)
   Sign-LZScripts.ps1           -- Authenticode signing helper (operator responsibility)
 
 Modules\
@@ -177,6 +191,8 @@ Tests\
   LZ-ProtectedUsers.Tests.ps1  -- Protected Users membership tests
   LZ-gMSAs.Tests.ps1           -- gMSA account tests
   LZ-GPOs.Tests.ps1            -- GPO scaffolding and WMI filter tests
+  LZ-Canary.Tests.ps1          -- Behavioral/canary tests (ProtectedFromAccidentalDeletion,
+                                  cross-tier write isolation, AdminSDHolder protection)
 ```
 
 ---
@@ -222,12 +238,17 @@ is always an explicit operator action.
 WMI filters, Auth Policies, Auth Silos, and gMSA accounts created by the deployer.
 
 ```powershell
+# Interactive (prompts for 'REMOVE' confirmation)
 .\Remove-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Remove.csv
+
+# Non-interactive (automated pipelines)
+.\Remove-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Remove.csv -Force
 ```
 
-Requires typing `REMOVE` at the confirmation prompt. Removal order is the
-reverse of deployment (Protected Users → Auth Silos/Policies → gMSAs → GPOs
-→ Groups → OUs). Every deletion is logged to the CSV.
+Without `-Force`, the script requires typing `REMOVE` at the console prompt
+before any deletions occur. Removal order is the reverse of deployment
+(Protected Users → Auth Silos/Policies → gMSAs → GPOs → Groups → OUs).
+Every deletion is logged to the CSV.
 
 **Note:** Any user or computer objects you manually placed inside `_LZ_` OUs
 must be moved or removed before running the removal script; the OU removal step
@@ -243,11 +264,22 @@ Requires Pester 5.x (`Install-Module Pester -Force -SkipPublisherCheck`).
 .\Tests\Invoke-LZPesterTests.ps1 -TierCount 3 -OutputPath C:\Logs\LZ-Pester.xml
 ```
 
-Tests verify the deployed state against the live AD environment. All 155 tests
-pass on a clean v2 deployment. Five T0 hardening tests skip by design until
+Tests verify the deployed state against the live AD environment. All structural
+tests pass on a clean deployment. Five T0 hardening tests skip by design until
 `Deploy-LZ-T0Hardening.ps1` has been run.
 
-Tests are read-only — they do not create or modify AD objects.
+Run only the canary tests with:
+
+```powershell
+.\Tests\Invoke-LZPesterTests.ps1 -TierCount 3 -Tag Canary
+```
+
+Available tags: `OUs`, `Groups`, `ACLs`, `AuthPolicies`, `ProtectedUsers`,
+`gMSAs`, `GPOs`, `Canary`. Omit `-Tag` to run the full suite.
+
+Tests are read-only — they do not create or modify AD objects. The Canary
+tests include one test that attempts (and expects to fail) an OU deletion;
+the OU is never actually removed.
 
 ---
 

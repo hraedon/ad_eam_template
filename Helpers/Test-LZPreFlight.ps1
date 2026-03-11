@@ -149,6 +149,67 @@ function Test-LZPreFlight {
     }
 
     # ------------------------------------------------------------------
+    # 5b. KDS Root Key replication check (multi-DC environments)
+    #
+    # If a KDS Root Key was found above, verify it has replicated to every
+    # domain controller. On a single-DC lab this is trivially satisfied.
+    # On a multi-DC domain, a gMSA provisioning call directed at a DC that
+    # has not yet received the key will fail with a KDS error.
+    #
+    # We query the KDS container on each DC directly via -Server rather than
+    # calling Get-KdsRootKey -Server (that cmdlet has no -Server parameter).
+    # ------------------------------------------------------------------
+    try {
+        $allDCs = @(Get-ADDomainController -Filter * -ErrorAction Stop)
+
+        if ($allDCs.Count -le 1) {
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'Info' `
+                -ObjectType 'KdsRootKey' -ObjectDN $kdsKeyDN `
+                -Detail "KDS Root Key replication check: single-DC environment, replication not applicable."
+        }
+        else {
+            $kdsContainerDN = "CN=Master Root Keys,CN=Group Key Distribution Service,CN=Services,CN=Configuration,$DomainDN"
+            $missingDCs     = @()
+
+            foreach ($dc in $allDCs) {
+                try {
+                    $keysOnDC = @(Get-ADObject `
+                        -Server     $dc.HostName `
+                        -SearchBase $kdsContainerDN `
+                        -Filter     * `
+                        -ErrorAction Stop)
+
+                    if ($keysOnDC.Count -eq 0) {
+                        $missingDCs += $dc.HostName
+                    }
+                }
+                catch {
+                    $missingDCs += "$($dc.HostName) [query error: $($_.Exception.Message)]"
+                }
+            }
+
+            if ($missingDCs.Count -gt 0) {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Warning' `
+                    -ObjectType 'KdsRootKey' -ObjectDN $kdsKeyDN `
+                    -Detail ("KDS Root Key has NOT yet replicated to the following DCs: " +
+                             "$($missingDCs -join ', '). " +
+                             "gMSA provisioning (Phase 8) may fail on these DCs until replication completes. " +
+                             "If the key was recently created, wait for AD replication (typically 15 minutes) and re-run pre-flight.")
+            }
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Info' `
+                    -ObjectType 'KdsRootKey' -ObjectDN $kdsKeyDN `
+                    -Detail "KDS Root Key replication confirmed on all $($allDCs.Count) DCs: $($allDCs.HostName -join ', ')."
+            }
+        }
+    }
+    catch {
+        Write-LZLog -LogPath $LogPath -Module $module -Action 'Warning' `
+            -ObjectType 'KdsRootKey' -ObjectDN $kdsKeyDN `
+            -Detail "Could not enumerate domain controllers for KDS replication check: $($_.Exception.Message). Proceeding."
+    }
+
+    # ------------------------------------------------------------------
     # 6. Detect existing LZ deployment (incremental vs. fresh)
     # ------------------------------------------------------------------
     $lzT0DN      = "OU=_LZ_T0,$DomainDN"
