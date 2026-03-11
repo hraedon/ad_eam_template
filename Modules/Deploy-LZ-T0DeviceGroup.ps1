@@ -42,7 +42,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZT0DeviceGroup {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][string]$LogPath
@@ -73,27 +73,34 @@ function Deploy-LZT0DeviceGroup {
             -Detail "Group '$groupName' already exists; no changes made."
     }
     catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-        try {
-            New-ADGroup `
-                -Name           $groupName `
-                -SamAccountName $groupName `
-                -GroupScope     Global `
-                -GroupCategory  Security `
-                -Path           $containerDN `
-                -Description    'T0 PAW device computer accounts. Members of this group are the only devices from which T0 admin accounts may authenticate (enforced by LZ-T0-AuthPolicy). Populated during migration phase.' `
-                -ErrorAction    Stop
+        if ($PSCmdlet.ShouldProcess($groupDN, 'New-ADGroup')) {
+            try {
+                New-ADGroup `
+                    -Name           $groupName `
+                    -SamAccountName $groupName `
+                    -GroupScope     Global `
+                    -GroupCategory  Security `
+                    -Path           $containerDN `
+                    -Description    'T0 PAW device computer accounts. Members of this group are the only devices from which T0 admin accounts may authenticate (enforced by LZ-T0-AuthPolicy). Populated during migration phase.' `
+                    -ErrorAction    Stop
 
-            $deviceGroup = Get-ADGroup -Identity $groupName -ErrorAction Stop
+                $deviceGroup = Get-ADGroup -Identity $groupName -ErrorAction Stop
 
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                -ObjectType 'Group' -ObjectDN $groupDN `
-                -Detail "Created '$groupName'. Populate with T0 PAW computer accounts before relying on the device restriction for T0 auth policy enforcement."
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                    -ObjectType 'Group' -ObjectDN $groupDN `
+                    -Detail "Created '$groupName'. Populate with T0 PAW computer accounts before relying on the device restriction for T0 auth policy enforcement."
+            }
+            catch {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                    -ObjectType 'Group' -ObjectDN $groupDN `
+                    -Detail "Failed to create '$groupName': $($_.Exception.Message)"
+                throw
+            }
         }
-        catch {
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+        else {
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                 -ObjectType 'Group' -ObjectDN $groupDN `
-                -Detail "Failed to create '$groupName': $($_.Exception.Message)"
-            throw
+                -Detail "Would create '$groupName' (T0 PAW device computer accounts group)."
         }
     }
     catch {
@@ -108,8 +115,12 @@ function Deploy-LZT0DeviceGroup {
     # ------------------------------------------------------------------
     # Retrieve the group's SID -- needed to build the upgraded SDDL.
     if (-not $deviceGroup) {
-        # Should not be reachable, but guard defensively.
-        throw "GS-LZ-T0-Devices group SID is unavailable. Cannot build device-restriction SDDL."
+        # Reachable in WhatIf mode when the group did not exist and was not created.
+        # We cannot compute the SDDL without the SID, so log a preview entry and exit.
+        Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
+            -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
+            -Detail "Would update '$policyName' UserAllowedToAuthenticateFrom once '$groupName' exists (SID not yet available in WhatIf mode)."
+        return
     }
 
     $deviceGroupSid = $deviceGroup.SID.Value
@@ -160,30 +171,33 @@ function Deploy-LZT0DeviceGroup {
         }
 
         { $_ -in 'Baseline', 'None' } {
-            try {
-                Set-ADAuthenticationPolicy `
-                    -Identity                    $policyName `
-                    -UserAllowedToAuthenticateFrom $upgradedSddl `
-                    -ErrorAction                 Stop
+            $fromDesc = if ($sddlState -eq 'None') { 'UserAllowedToAuthenticateFrom was unset' } else { 'was v1 baseline (@DEVICE.domainjoined)' }
 
-                $fromDesc = if ($sddlState -eq 'None') {
-                    'UserAllowedToAuthenticateFrom was unset'
-                } else {
-                    "was v1 baseline (@DEVICE.domainjoined)"
+            if ($PSCmdlet.ShouldProcess($policyDN, "Set-ADAuthenticationPolicy (upgrade UserAllowedToAuthenticateFrom)")) {
+                try {
+                    Set-ADAuthenticationPolicy `
+                        -Identity                    $policyName `
+                        -UserAllowedToAuthenticateFrom $upgradedSddl `
+                        -ErrorAction                 Stop
+
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
+                        -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
+                        -Detail ("Updated '$policyName' UserAllowedToAuthenticateFrom: $fromDesc. " +
+                                 "New condition restricts T0 authentication to members of '$groupName'. " +
+                                 "The group is currently empty -- populate with T0 PAW computer accounts " +
+                                 "before relying on this restriction. SDDL: $upgradedSddl")
                 }
-
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
-                    -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
-                    -Detail ("Updated '$policyName' UserAllowedToAuthenticateFrom: $fromDesc. " +
-                             "New condition restricts T0 authentication to members of '$groupName'. " +
-                             "The group is currently empty -- populate with T0 PAW computer accounts " +
-                             "before relying on this restriction. SDDL: $upgradedSddl")
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
+                        -Detail "Failed to update '$policyName' UserAllowedToAuthenticateFrom: $($_.Exception.Message)"
+                    throw
+                }
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
-                    -Detail "Failed to update '$policyName' UserAllowedToAuthenticateFrom: $($_.Exception.Message)"
-                throw
+                    -Detail ("Would update '$policyName' UserAllowedToAuthenticateFrom: $fromDesc -> Member_of_any {SID($deviceGroupSid)}.")
             }
         }
 

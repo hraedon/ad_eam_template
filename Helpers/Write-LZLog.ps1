@@ -3,9 +3,17 @@
     Structured logging helper for the AD Landing Zone deployer.
 
 .DESCRIPTION
-    Writes a structured log entry to both the console and a CSV file.
-    Every action taken by the deployer (created, skipped, modified, error) is
-    recorded through this function.
+    Writes a structured log entry to three sinks simultaneously:
+      1. Console  -- colour-coded for operator readability.
+      2. CSV file -- append mode; the canonical deployment record.
+      3. Windows Event Log -- Application log, source ADLandingZone.
+         Provides an immutable, SIEM-consumable audit trail that a Domain Admin
+         cannot silently edit. The Event Log is a secondary sink; if it is
+         unavailable the function continues without error.
+
+    Event IDs:
+        1001 Created | 1002 Skipped | 1003 Modified | 1004 Error
+        1005 Warning | 1006 Info    | 1007 WhatIf
 
 .PARAMETER LogPath
     Full path to the CSV log file. Created on first write; appended on subsequent calls.
@@ -14,7 +22,8 @@
     The deployer module producing this log entry (e.g. PreFlight, OUs, Groups).
 
 .PARAMETER Action
-    Nature of the action: Created, Skipped, Modified, Error, Warning, or Info.
+    Nature of the action: Created, Skipped, Modified, Error, Warning, Info, or WhatIf.
+    WhatIf entries are written during -WhatIf preview runs; no AD objects are created.
 
 .PARAMETER ObjectType
     AD object class or category: OU, Group, Container, ACL, AuthPolicy, Silo,
@@ -33,7 +42,7 @@ function Write-LZLog {
         [Parameter(Mandatory)][string]$LogPath,
         [Parameter(Mandatory)][string]$Module,
         [Parameter(Mandatory)]
-        [ValidateSet('Created','Skipped','Modified','Error','Warning','Info')]
+        [ValidateSet('Created','Skipped','Modified','Error','Warning','Info','WhatIf')]
         [string]$Action,
         [Parameter(Mandatory)][string]$ObjectType,
         [Parameter(Mandatory)][string]$ObjectDN,
@@ -57,12 +66,13 @@ function Write-LZLog {
 
     # Console output -- colour-coded by action type.
     $color = switch ($Action) {
-        'Created' { 'Green'   }
-        'Skipped' { 'Yellow'  }
-        'Modified'{ 'Cyan'    }
-        'Error'   { 'Red'     }
-        'Warning' { 'Magenta' }
-        default   { 'White'   }
+        'Created' { 'Green'    }
+        'Skipped' { 'Yellow'   }
+        'Modified'{ 'Cyan'     }
+        'Error'   { 'Red'      }
+        'Warning' { 'Magenta'  }
+        'WhatIf'  { 'DarkCyan' }
+        default   { 'White'    }
     }
 
     $consoleLine = '[{0}] [{1,-14}] [{2,-8}] {3,-20} | {4}' -f
@@ -76,4 +86,54 @@ function Write-LZLog {
 
     # CSV output -- append mode; Export-Csv creates the file on first call.
     $entry | Export-Csv -Path $LogPath -Append -NoTypeInformation -Encoding UTF8
+
+    # ------------------------------------------------------------------
+    # Event Log sink -- immutable secondary audit trail.
+    #
+    # Source 'ADLandingZone' is registered once per session in the
+    # Application log. Registration requires admin rights (already
+    # verified in pre-flight). All errors are non-fatal: if the Event
+    # Log is unavailable, CSV + console remain the authoritative record.
+    # ------------------------------------------------------------------
+    if (-not $script:LZEventLogReady) {
+        try {
+            if (-not [System.Diagnostics.EventLog]::SourceExists('ADLandingZone')) {
+                New-EventLog -LogName Application -Source 'ADLandingZone' -ErrorAction Stop
+            }
+            $script:LZEventLogReady = $true
+        }
+        catch {
+            # Non-fatal. Mark as permanently unavailable for this session so
+            # we do not re-attempt the registry write on every log call.
+            $script:LZEventLogReady = $false
+            Write-Verbose "Event Log source registration failed: $($_.Exception.Message)"
+        }
+    }
+
+    if ($script:LZEventLogReady) {
+        $eventId = switch ($Action) {
+            'Created'  { 1001 }
+            'Skipped'  { 1002 }
+            'Modified' { 1003 }
+            'Error'    { 1004 }
+            'Warning'  { 1005 }
+            'Info'     { 1006 }
+            'WhatIf'   { 1007 }
+            default    { 1000 }
+        }
+        $entryType = switch ($Action) {
+            'Error'   { [System.Diagnostics.EventLogEntryType]::Error   }
+            'Warning' { [System.Diagnostics.EventLogEntryType]::Warning }
+            default   { [System.Diagnostics.EventLogEntryType]::Information }
+        }
+        # Key=value format for SIEM parsing without requiring a custom manifest.
+        $eventMessage = "Module: $Module`nAction: $Action`nObjectType: $ObjectType`nObjectDN: $ObjectDN`nDetail: $Detail`nTimestamp: $($entry.Timestamp)"
+        try {
+            Write-EventLog -LogName Application -Source 'ADLandingZone' `
+                -EventId $eventId -EntryType $entryType -Message $eventMessage -ErrorAction Stop
+        }
+        catch {
+            Write-Verbose "Event Log write failed: $($_.Exception.Message)"
+        }
+    }
 }

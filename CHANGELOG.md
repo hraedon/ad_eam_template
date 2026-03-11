@@ -5,6 +5,82 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v2.6.0] — 2026-03-11
+
+### Added
+- **`-WhatIf` support across all deploy modules**: every state-mutating AD
+  operation in all 8 deployment modules is now wrapped in
+  `$PSCmdlet.ShouldProcess()`. Passing `-WhatIf` to the orchestrator causes
+  all phases to preview their actions without writing any objects to Active
+  Directory. Sixteen guard points cover every `New-AD*`, `Set-Acl`,
+  `Add-ADGroupMember`, `New-GPO`, `New-GPLink`, `Set-GPInheritance`,
+  `Set-ADAuthenticationPolicy`, and `Set-ADObject` call in the deployer.
+  - `[CmdletBinding(SupportsShouldProcess)]` added to all 8 deploy module
+    functions and 2 inner helpers (`New-LZOU`, `New-LZGroup`, `Add-LZAce`,
+    `New-LZWmiFilter`).
+  - WhatIf mode writes `Action=WhatIf` entries to the CSV log so operators
+    receive a structured, reviewable change manifest before committing. Existing
+    objects are still reported as `Skipped` (the read is always performed).
+  - Orchestrator displays a `~~~` WhatIf banner when `-WhatIf` is active.
+  - Summary block gains a `WhatIf (preview): N` line when WhatIf entries are
+    present in the log.
+  - Two edge cases handled: when `GS-LZ-T0-Devices` or a GPO does not yet
+    exist in WhatIf mode, downstream steps that require the new object's SID or
+    GUID log a descriptive `WhatIf` entry rather than throwing.
+  - Delivers the `-WhatIf` scaffold committed in v2.5.0, which deferred
+    individual operation wrapping to a later sprint.
+- **Immutable Event Log audit trail** (`Helpers/Write-LZLog.ps1`): every call
+  to `Write-LZLog` now writes to a third sink — the Windows Application event
+  log, source `ADLandingZone` — in addition to the console and CSV.
+  - Source is registered once per session on first use via a `$script:` flag;
+    if registration fails (source already registered to a different log, or
+    insufficient rights), the flag is set and the sink is silently bypassed for
+    the remainder of the run. CSV and console remain authoritative.
+  - Event IDs: `1001` Created · `1002` Skipped · `1003` Modified · `1004`
+    Error · `1005` Warning · `1006` Info · `1007` WhatIf.
+  - Entry type follows action: `Error` → `Error`; `Warning` → `Warning`;
+    all others → `Information`.
+  - Message format: `key: value` per line for SIEM parsing without requiring
+    a compiled event manifest.
+  - Unlike the CSV, event log entries cannot be silently edited by a Domain
+    Admin after the fact, satisfying typical compliance requirements for an
+    immutable audit trail.
+
+### Changed
+- **`Write-LZLog` `Action` parameter**: `ValidateSet` extended to include
+  `'WhatIf'`; console colour for WhatIf entries is `DarkCyan`.
+- **Version banner** updated from `[v2.5]` to `[v2.6]`.
+
+- **Deployment report** (`New-LZDeploymentReport.ps1`): read-only operator script
+  that queries live AD state and produces a Markdown handoff document covering all
+  eight aspects of the deployed Landing Zone:
+  - Section 1: OU hierarchy with protection status (indented tree)
+  - Section 2: Security group membership (all `GS-LZ-*` groups in `CN=_LZ_Groups`)
+  - Section 3: ACL delegations per tier OU — explicit ACEs only, rights translated
+    to prose (`GenericAll (Full Control)`, `ReadProperty, ListChildren, ListObject`,
+    etc.), inheritance scope described in plain English
+  - Section 4: Authentication Policy settings (TGT lifetime, enforcement mode,
+    device restriction in human-readable form rather than raw SDDL)
+  - Section 5: Authentication Policy Silos (linked policy, currently enrolled accounts)
+  - Section 6: Protected Users membership (filtered to `GS-LZ-*` entries)
+  - Section 7: gMSA accounts (DN, DNSHostName, `PrincipalsAllowedToRetrieveManagedPassword`
+    resolved to names)
+  - Section 8: GPO scaffolding (GUID, link status, inheritance block, WMI filter query)
+  - Each section handles the "phase not yet run" case gracefully rather than failing
+    the whole report. The GPMC module is optional; if absent, Section 8 is omitted
+    with install instructions.
+
+### Documentation
+- `README.md`: `-WhatIf` added to parameters table and usage examples; new
+  "WhatIf / Preview Mode" section; "Output and Logging" section updated to
+  describe the Event Log sink, WhatIf summary line, and WhatIf CSV entries;
+  `New-LZDeploymentReport.ps1` added to script structure and Operator Tools section.
+- `TUTORIAL.md`: Step 2 (Deployment) gains a "Preview first" sub-step; logging
+  section updated to describe the Event Log sink; report tool documented in
+  Section 5 (What This Deployer Does Not Do → now reframed around what it does).
+
+---
+
 ## [v2.5.0] — 2026-03-11
 
 ### Added
@@ -14,7 +90,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - AdminSDHolder protection awareness — verifies no `GS-LZ-*` group appears in explicit ACEs on `Domain Admins` or `Schema Admins`.
 - **KDS Root Key replication check** (pre-flight check 5b in `Helpers/Test-LZPreFlight.ps1`): on multi-DC domains, queries each DC's KDS container via `Get-ADObject -Server` and warns if any DC has not yet received the key. Single-DC environments log "not applicable".
 - **Post-deployment T0 hardening reminder**: `Deploy-ADLandingZone.ps1` now prints a yellow banner at the end of every run reminding the operator to run `Deploy-LZ-T0Hardening.ps1` with the rationale for why it is not called automatically.
-- **`[CmdletBinding(SupportsShouldProcess)]`** added to `Deploy-ADLandingZone.ps1` to scaffold `-WhatIf` / `-Confirm` support; individual module operations are not yet wrapped (v3 enhancement).
+- **`[CmdletBinding(SupportsShouldProcess)]`** added to `Deploy-ADLandingZone.ps1` to scaffold `-WhatIf` / `-Confirm` support at the orchestrator level; individual module operation wrapping delivered in v2.6.0.
 
 ### Changed
 - **Deployer skip flags** (`Deploy-ADLandingZone.ps1`): `[bool]$DeployGmsas = $true` and `[bool]$DeployGpos = $true` replaced with `[switch]$SkipGmsas` and `[switch]$SkipGpos`. Call `-SkipGmsas` to skip Phase 8; `-SkipGpos` to skip Phase 9. Both absent by default (all phases run).

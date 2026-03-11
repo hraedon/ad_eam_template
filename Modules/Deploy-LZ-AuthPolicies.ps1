@@ -41,7 +41,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZAuthPolicies {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][ValidateRange(2, 10)][int]$TierCount,
@@ -171,25 +171,35 @@ function Deploy-LZAuthPolicies {
                 $policyParams['UserAllowedToAuthenticateFrom'] = $cfg.DeviceSddl
             }
 
-            try {
-                New-ADAuthenticationPolicy @policyParams
+            if ($PSCmdlet.ShouldProcess($policyDN, 'New-ADAuthenticationPolicy')) {
+                try {
+                    New-ADAuthenticationPolicy @policyParams
 
-                $deviceNote = if ($cfg.DeviceSddl) {
-                    " UserAllowedToAuthenticateFrom set to domain-joined device condition (SDDL baseline). " +
-                    "Full PAW restriction requires populating a T0 device group and updating this policy during migration phase."
-                } else { '' }
+                    $deviceNote = if ($cfg.DeviceSddl) {
+                        " UserAllowedToAuthenticateFrom set to domain-joined device condition (SDDL baseline). " +
+                        "Full PAW restriction requires populating a T0 device group and updating this policy during migration phase."
+                    } else { '' }
 
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
+                        -Detail ("Created '$policyName': TGT=$($cfg.TgtLifetimeMins)min, " +
+                                 "RollingNTLMSecret=$($cfg.RollingNTLMSecret), " +
+                                 "Enforce=$($cfg.Enforce).$deviceNote")
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
+                        -Detail "Failed to create '$policyName': $($_.Exception.Message)"
+                    throw
+                }
+            }
+            else {
+                $deviceNote = if ($cfg.DeviceSddl) { ' UserAllowedToAuthenticateFrom: domain-joined baseline.' } else { '' }
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
-                    -Detail ("Created '$policyName': TGT=$($cfg.TgtLifetimeMins)min, " +
+                    -Detail ("Would create '$policyName': TGT=$($cfg.TgtLifetimeMins)min, " +
                              "RollingNTLMSecret=$($cfg.RollingNTLMSecret), " +
                              "Enforce=$($cfg.Enforce).$deviceNote")
-            }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
-                    -ObjectType 'AuthPolicy' -ObjectDN $policyDN `
-                    -Detail "Failed to create '$policyName': $($_.Exception.Message)"
-                throw
             }
         }
         catch {
@@ -210,26 +220,33 @@ function Deploy-LZAuthPolicies {
                 -Detail "Authentication policy silo '$siloName' already exists; no changes made."
         }
         catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            try {
-                New-ADAuthenticationPolicySilo `
-                    -Name                    $siloName `
-                    -Description             $cfg.SiloDescription `
-                    -UserAuthenticationPolicy $policyName `
-                    -ProtectedFromAccidentalDeletion $true `
-                    -ErrorAction             Stop
+            if ($PSCmdlet.ShouldProcess($siloDN, 'New-ADAuthenticationPolicySilo')) {
+                try {
+                    New-ADAuthenticationPolicySilo `
+                        -Name                    $siloName `
+                        -Description             $cfg.SiloDescription `
+                        -UserAuthenticationPolicy $policyName `
+                        -ProtectedFromAccidentalDeletion $true `
+                        -ErrorAction             Stop
 
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                    -ObjectType 'Silo' -ObjectDN $siloDN `
-                    -Detail ("Created '$siloName' linked to '$policyName'. " +
-                             "To enroll accounts: Grant-ADAuthenticationPolicySiloAccess " +
-                             "-Identity '$siloName' -Account <SamAccountName>. " +
-                             "Enrollment of individual accounts is a migration-phase action.")
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'Silo' -ObjectDN $siloDN `
+                        -Detail ("Created '$siloName' linked to '$policyName'. " +
+                                 "To enroll accounts: Grant-ADAuthenticationPolicySiloAccess " +
+                                 "-Identity '$siloName' -Account <SamAccountName>. " +
+                                 "Enrollment of individual accounts is a migration-phase action.")
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'Silo' -ObjectDN $siloDN `
+                        -Detail "Failed to create '$siloName': $($_.Exception.Message)"
+                    throw
+                }
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'Silo' -ObjectDN $siloDN `
-                    -Detail "Failed to create '$siloName': $($_.Exception.Message)"
-                throw
+                    -Detail "Would create '$siloName' linked to '$policyName'. Enrollment of individual accounts is a migration-phase action."
             }
         }
         catch {

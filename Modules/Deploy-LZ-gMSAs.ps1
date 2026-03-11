@@ -54,7 +54,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZgMSAs {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][string]$DomainFQDN,
@@ -143,28 +143,35 @@ function Deploy-LZgMSAs {
                 -Detail "Host group '$hostGroupName' already exists; no changes made."
         }
         catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            try {
-                New-ADGroup `
-                    -Name           $hostGroupName `
-                    -SamAccountName $hostGroupName `
-                    -GroupScope     Global `
-                    -GroupCategory  Security `
-                    -Path           $containerDN `
-                    -Description    ("Tier $n gMSA host computers. Members of this group may retrieve the password for gMSA-LZ-T$n. " +
-                                     "Add T$n server computer accounts here during migration phase.") `
-                    -ErrorAction    Stop
+            if ($PSCmdlet.ShouldProcess($hostGroupDN, 'New-ADGroup')) {
+                try {
+                    New-ADGroup `
+                        -Name           $hostGroupName `
+                        -SamAccountName $hostGroupName `
+                        -GroupScope     Global `
+                        -GroupCategory  Security `
+                        -Path           $containerDN `
+                        -Description    ("Tier $n gMSA host computers. Members of this group may retrieve the password for gMSA-LZ-T$n. " +
+                                         "Add T$n server computer accounts here during migration phase.") `
+                        -ErrorAction    Stop
 
-                $hostGroup = Get-ADGroup -Identity $hostGroupName -ErrorAction Stop
+                    $hostGroup = Get-ADGroup -Identity $hostGroupName -ErrorAction Stop
 
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                    -ObjectType 'Group' -ObjectDN $hostGroupDN `
-                    -Detail "Created '$hostGroupName'. Add T$n server computer accounts during migration to grant gMSA password retrieval."
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'Group' -ObjectDN $hostGroupDN `
+                        -Detail "Created '$hostGroupName'. Add T$n server computer accounts during migration to grant gMSA password retrieval."
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'Group' -ObjectDN $hostGroupDN `
+                        -Detail "Failed to create '$hostGroupName': $($_.Exception.Message)"
+                    throw
+                }
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'Group' -ObjectDN $hostGroupDN `
-                    -Detail "Failed to create '$hostGroupName': $($_.Exception.Message)"
-                throw
+                    -Detail "Would create '$hostGroupName' (gMSA host principals group for Tier $n)."
             }
         }
         catch {
@@ -205,28 +212,42 @@ function Deploy-LZgMSAs {
             }
         }
         catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            # gMSA does not exist -- create it.
-            try {
-                New-ADServiceAccount `
-                    -Name                                    $gmsaName `
-                    -DNSHostName                             $gmsaDNS `
-                    -Path                                    $gmsaPath `
-                    -PrincipalsAllowedToRetrieveManagedPassword $hostGroup `
-                    -Description                             ("Tier $n infrastructure gMSA. Used by T$n services enrolled during migration phase. " +
-                                                              "Password retrieval: members of $hostGroupName only.") `
-                    -ErrorAction                             Stop
-
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+            # gMSA does not exist -- create it (or preview in WhatIf mode).
+            if (-not $hostGroup) {
+                # WhatIf mode: host group was not yet created, so we cannot pass it
+                # as a principal. Log the preview entry and move on.
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'gMSA' -ObjectDN $gmsaDN `
-                    -Detail ("Created gMSA '$gmsaName' in '$gmsaPath'. " +
-                             "PrincipalsAllowedToRetrieveManagedPassword: '$hostGroupName' (currently empty -- add server computer accounts during migration). " +
-                             "DNSHostName: $gmsaDNS.")
+                    -Detail "Would create gMSA '$gmsaName' in '$gmsaPath' once '$hostGroupName' exists."
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            elseif ($PSCmdlet.ShouldProcess($gmsaDN, 'New-ADServiceAccount')) {
+                try {
+                    New-ADServiceAccount `
+                        -Name                                    $gmsaName `
+                        -DNSHostName                             $gmsaDNS `
+                        -Path                                    $gmsaPath `
+                        -PrincipalsAllowedToRetrieveManagedPassword $hostGroup `
+                        -Description                             ("Tier $n infrastructure gMSA. Used by T$n services enrolled during migration phase. " +
+                                                                  "Password retrieval: members of $hostGroupName only.") `
+                        -ErrorAction                             Stop
+
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'gMSA' -ObjectDN $gmsaDN `
+                        -Detail ("Created gMSA '$gmsaName' in '$gmsaPath'. " +
+                                 "PrincipalsAllowedToRetrieveManagedPassword: '$hostGroupName' (currently empty -- add server computer accounts during migration). " +
+                                 "DNSHostName: $gmsaDNS.")
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'gMSA' -ObjectDN $gmsaDN `
+                        -Detail "Failed to create gMSA '$gmsaName': $($_.Exception.Message)"
+                    throw
+                }
+            }
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'gMSA' -ObjectDN $gmsaDN `
-                    -Detail "Failed to create gMSA '$gmsaName': $($_.Exception.Message)"
-                throw
+                    -Detail "Would create gMSA '$gmsaName' in '$gmsaPath' with '$hostGroupName' as PrincipalsAllowedToRetrieveManagedPassword. DNSHostName: $gmsaDNS."
             }
         }
         catch {

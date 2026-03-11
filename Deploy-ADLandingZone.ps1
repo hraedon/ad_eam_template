@@ -49,6 +49,13 @@
 
 .EXAMPLE
     .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGpos
+
+.EXAMPLE
+    .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-WhatIf.csv -WhatIf
+
+    Preview mode: all objects are evaluated and reported, but nothing is written to Active
+    Directory. The CSV at LogPath is still written with Action=WhatIf entries so the
+    operator can review the full change set before committing.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -111,13 +118,26 @@ if ($logDir -and -not (Test-Path $logDir)) {
 
 Write-Host ''
 Write-Host ('=' * 72) -ForegroundColor Cyan
-Write-Host '  AD Landing Zone Deployer  [v2.5]' -ForegroundColor Cyan
+Write-Host '  AD Landing Zone Deployer  [v2.6]' -ForegroundColor Cyan
 Write-Host "  TierCount   : $TierCount" -ForegroundColor Cyan
 Write-Host "  LogPath     : $LogPath" -ForegroundColor Cyan
 Write-Host "  SkipGmsas   : $($SkipGmsas.IsPresent)" -ForegroundColor Cyan
 Write-Host "  SkipGpos    : $($SkipGpos.IsPresent)" -ForegroundColor Cyan
 Write-Host "  Started     : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') UTC+0 (local clock)" -ForegroundColor Cyan
 Write-Host ('=' * 72) -ForegroundColor Cyan
+
+# WhatIf mode banner -- displayed whenever -WhatIf is passed so the operator
+# cannot miss the fact that no changes will be written to Active Directory.
+if ($WhatIfPreference) {
+    Write-Host ''
+    Write-Host ('~' * 72) -ForegroundColor DarkCyan
+    Write-Host '  WHATIF MODE -- No objects will be created or modified.' -ForegroundColor DarkCyan
+    Write-Host '  All actions are previewed only. The CSV log is written with' -ForegroundColor DarkCyan
+    Write-Host '  Action=WhatIf entries so you can review the change set before' -ForegroundColor DarkCyan
+    Write-Host '  running without -WhatIf to commit.' -ForegroundColor DarkCyan
+    Write-Host ('~' * 72) -ForegroundColor DarkCyan
+}
+
 Write-Host ''
 
 # ------------------------------------------------------------------
@@ -263,6 +283,7 @@ $totalModified = 0
 $totalSkipped  = 0
 $totalWarnings = 0
 $totalErrors   = 0
+$totalWhatIf   = 0
 $totalEntries  = 0
 $summaryOk     = $false
 
@@ -273,6 +294,7 @@ try {
     $totalSkipped  = @($logEntries | Where-Object { $_.Action -eq 'Skipped'  }).Count
     $totalWarnings = @($logEntries | Where-Object { $_.Action -eq 'Warning'  }).Count
     $totalErrors   = @($logEntries | Where-Object { $_.Action -eq 'Error'    }).Count
+    $totalWhatIf   = @($logEntries | Where-Object { $_.Action -eq 'WhatIf'   }).Count
     $totalEntries  = $logEntries.Count
     $summaryOk     = $true
 }
@@ -289,6 +311,9 @@ if ($summaryOk) {
     Write-Host "  Skipped           : $totalSkipped"  -ForegroundColor Yellow
     Write-Host "  Warnings          : $totalWarnings" -ForegroundColor Magenta
     Write-Host "  Errors            : $totalErrors"   -ForegroundColor $errColor
+    if ($totalWhatIf -gt 0) {
+        Write-Host "  WhatIf (preview)  : $totalWhatIf" -ForegroundColor DarkCyan
+    }
     Write-Host ''
     Write-Host "  Full log          : $LogPath"
 }

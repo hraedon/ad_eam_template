@@ -101,6 +101,7 @@ use this in environments where the policy exists for security reasons.
 | `LogPath` | `string` (mandatory) | Full path for the structured CSV deployment log. Parent directory is created if absent. |
 | `SkipGmsas` | `switch` | When present, skips Phase 8 (gMSA provisioning). Use when a KDS Root Key is not yet effective. |
 | `SkipGpos` | `switch` | When present, skips Phase 9 (GPO scaffolding). Use when GPMC RSAT is not installed or GPOs are managed separately. |
+| `-WhatIf` | common | Preview all phases without writing any objects to AD. See [WhatIf / Preview Mode](#whatif--preview-mode) below. |
 
 Both skip flags are absent by default — all phases run unless explicitly skipped.
 
@@ -114,6 +115,50 @@ Both skip flags are absent by default — all phases run unless explicitly skipp
 # Skip both optional phases
 .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv -SkipGmsas -SkipGpos
 ```
+
+---
+
+## WhatIf / Preview Mode
+
+Pass `-WhatIf` to preview the complete change set without writing anything to
+Active Directory:
+
+```powershell
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-WhatIf.csv -WhatIf
+```
+
+**What happens during a WhatIf run:**
+
+- All nine phases execute, but every `New-AD*`, `Set-Acl`, `Add-ADGroupMember`,
+  `New-GPO`, `New-GPLink`, `Set-GPInheritance`, and related mutation calls are
+  suppressed. PowerShell emits the standard "What if: Performing the operation..."
+  messages to the console for each suppressed call.
+- Read operations (`Get-ADOrganizationalUnit`, `Get-ADGroup`, etc.) still
+  execute, so objects that already exist are correctly reported as `Skipped`
+  rather than `WhatIf`. You see the real diff: what would be created vs. what
+  is already in place.
+- The CSV at `$LogPath` is still written, with `Action=WhatIf` entries in place
+  of `Action=Created` or `Action=Modified`. This gives you a structured change
+  manifest you can review, diff, or attach to a change request before committing.
+- The summary at the end includes a `WhatIf (preview): N` line showing how many
+  objects would be created or modified.
+
+**Typical workflow:**
+
+```powershell
+# 1. Preview
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-WhatIf.csv -WhatIf
+
+# 2. Review the CSV
+Import-Csv C:\Logs\LZ-WhatIf.csv | Where-Object { $_.Action -eq 'WhatIf' } | Format-Table
+
+# 3. Commit (reuse same LogPath or a new one for the real run)
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv
+```
+
+Note: `-WhatIf` is a standard PowerShell common parameter derived from
+`[CmdletBinding(SupportsShouldProcess)]`. It is honored by all 8 deploy modules
+and their inner helper functions.
 
 ---
 
@@ -132,9 +177,20 @@ If any test fails, resolve the access issue before running the deployer.
 
 ## Output and Logging
 
-Every action is written to both the console (colour-coded) and the CSV at
-`$LogPath`. After all phases complete, the orchestrator reads the CSV and
-prints a summary:
+Every action is written to three sinks simultaneously:
+
+1. **Console** — colour-coded: green (Created), yellow (Skipped), cyan
+   (Modified), red (Error), magenta (Warning), dark-cyan (WhatIf).
+2. **CSV** at `$LogPath` — the canonical deployment record; the summary is
+   derived from this file, not from in-memory counters.
+3. **Windows Event Log** — Application log, source `ADLandingZone`. Provides
+   an immutable, SIEM-consumable trail that a Domain Admin cannot silently edit.
+   Source is registered on first use. Event IDs: 1001 Created · 1002 Skipped ·
+   1003 Modified · 1004 Error · 1005 Warning · 1006 Info · 1007 WhatIf.
+   The Event Log is a secondary sink; if it is unavailable the run continues
+   and CSV + console remain authoritative.
+
+After all phases complete, the orchestrator reads the CSV and prints a summary:
 
 ```
   Total log entries : 63
@@ -143,6 +199,12 @@ prints a summary:
   Skipped           : 63
   Warnings          : 0
   Errors            : 0
+```
+
+On a WhatIf run the summary includes an additional line:
+
+```
+  WhatIf (preview)  : 42
 ```
 
 The summary is derived from the CSV rather than from in-memory counters.
@@ -160,9 +222,10 @@ Remove-ADLandingZone.ps1       -- Removal orchestrator (requires 'REMOVE' confir
 CC-PreFlight-Test.ps1          -- Standalone pre-flight check
 Deploy-LZ-T0Hardening.ps1      -- Operator tool: writes T0 GPO security template (GptTmpl.inf)
 Invoke-LZSiloEnrollment.ps1    -- Operator tool: enrolls accounts into Auth Policy Silos
+New-LZDeploymentReport.ps1     -- Operator tool: queries live AD and produces Markdown handoff report
 
 Helpers\
-  Write-LZLog.ps1              -- Structured logging helper
+  Write-LZLog.ps1              -- Structured logging helper (console + CSV + Event Log)
   Test-LZPreFlight.ps1         -- Pre-flight validation (7 checks, incl. KDS replication)
   Sign-LZScripts.ps1           -- Authenticode signing helper (operator responsibility)
 
@@ -216,6 +279,34 @@ Writes a `GptTmpl.inf` containing:
   `GS-LZ-T1-Admins` and `GS-LZ-T2-Admins` on T0 assets
 
 Idempotent via SHA256 hash comparison — rewrites only if content has changed.
+
+### Deployment Report (`New-LZDeploymentReport.ps1`)
+
+Read-only operator script that queries live AD state and produces a Markdown
+handoff document — suitable for security architects, auditors, or change advisory
+boards. No objects are created or modified.
+
+```powershell
+.\New-LZDeploymentReport.ps1 -TierCount 3 -OutputPath C:\Reports\LZ-Report.md
+```
+
+The report covers eight sections:
+
+1. **OU Hierarchy** — indented tree with ProtectedFromAccidentalDeletion status
+2. **Security Groups** — all `GS-LZ-*` groups with current membership counts
+3. **ACL Delegations** — explicit ACEs per tier OU, rights translated to prose,
+   inheritance scope described in plain English
+4. **Authentication Policies** — TGT lifetime, enforcement mode, NTLM secret
+   policy, and device restriction in human-readable form (not raw SDDL)
+5. **Authentication Policy Silos** — linked policy and currently enrolled accounts
+6. **Protected Users** — `GS-LZ-*` entries in the built-in group
+7. **gMSA Accounts** — DN, DNSHostName, and principals allowed to retrieve the
+   managed password (resolved to names)
+8. **GPO Scaffolding** — GUID, link status, inheritance block, WMI filter query
+   (requires GPMC; section is omitted gracefully if the GroupPolicy module is absent)
+
+Each section handles the "phase not yet run" case gracefully rather than failing
+the whole report.
 
 ### Silo Enrollment (`Invoke-LZSiloEnrollment.ps1`)
 

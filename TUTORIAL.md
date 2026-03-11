@@ -105,9 +105,31 @@ harder to recover from than fixing them upfront.
 
 ### Step 2: Deployment
 
-Run the orchestrator script to instantiate the structure. This is an
-**additive-only** process -- it will not modify or delete any existing objects
-outside the `_LZ_` / `GS-LZ-` namespace.
+#### 2a. Preview first (recommended)
+
+Before writing anything to AD, run with `-WhatIf` to see exactly what the
+deployer would create. Existing objects are still queried, so the output
+shows a real diff — objects already present appear as `Skipped`, objects
+that would be created appear as `WhatIf`:
+
+```powershell
+.\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-WhatIf.csv -WhatIf
+```
+
+The CSV at `C:\Logs\LZ-WhatIf.csv` will contain one row per action. Review it:
+
+```powershell
+Import-Csv C:\Logs\LZ-WhatIf.csv | Where-Object { $_.Action -eq 'WhatIf' } | Format-Table
+```
+
+This is particularly valuable when presenting to a change advisory board or
+running against a production domain for the first time.
+
+#### 2b. Commit
+
+Run the orchestrator without `-WhatIf` to instantiate the structure. This is
+an **additive-only** process — it will not modify or delete any existing
+objects outside the `_LZ_` / `GS-LZ-` namespace.
 
 ```powershell
 .\Deploy-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Deploy.csv
@@ -116,6 +138,12 @@ outside the `_LZ_` / `GS-LZ-` namespace.
 Review the CSV log after the run. The summary printed at the end is derived
 from the CSV, so a zero-row log despite console output indicates a log write
 problem worth investigating before proceeding.
+
+Every action is also written to the Windows Application Event Log under the
+source `ADLandingZone` (Event IDs 1001–1007). These entries are immutable
+after the fact — unlike the CSV, they cannot be silently edited — which
+satisfies most change-record retention requirements and makes the deployment
+consumable by SIEM tooling without additional integration work.
 
 ### Step 3: T0 GPO Hardening (Operator Action)
 
@@ -134,7 +162,27 @@ readiness is confirmed can lock you out of T0 infrastructure.
 The deployer prints a reminder notice at the end of its run — the notice
 includes this command and the rationale.
 
-### Step 4: Migration (Manual)
+### Step 4: Generate a Deployment Report (Recommended)
+
+Before migrating any objects, generate a Markdown handoff document that captures
+the full deployed state — OU hierarchy, groups, ACLs, auth policies, silos,
+Protected Users, gMSAs, and GPO scaffolding — in a single reviewable artifact:
+
+```powershell
+.\New-LZDeploymentReport.ps1 -TierCount 3 -OutputPath C:\Reports\LZ-Report.md
+```
+
+The script is read-only. It queries live AD and writes a structured Markdown file
+at `OutputPath`. Use it to:
+
+- Attach a before/after snapshot to a change request
+- Provide a handoff document to the security architect or auditor
+- Verify that every phase ran successfully before beginning object migration
+
+If the GroupPolicy module (`GPMC`) is not installed, Section 8 (GPO scaffolding)
+is omitted from the report with an install note; all other sections still render.
+
+### Step 5: Migration (Manual)
 
 The Landing Zone provides the structure, but you must move objects into it.
 This is a deliberate manual phase -- the deployer does not touch existing
@@ -153,7 +201,7 @@ objects.
 `GS-LZ-T0-Admins`:** confirm it can authenticate via Kerberos only and
 tolerate the 4-hour TGT limit. See the Protected Users warning in Section 2B.
 
-### Step 5: Silo Enrollment (Manual)
+### Step 6: Silo Enrollment (Manual)
 
 Moving an account into a tier OU does not automatically enroll it in the
 Authentication Policy Silo. Enrollment is a separate, explicit action:
@@ -179,13 +227,15 @@ requirements defined in Section 2A.
 | Legacy Auth (NTLM) | Often permitted | Blocked for T0 via Protected Users; audited at T1/T2 |
 | Read Access | Often unmanaged | Scoped via tiered Reader groups; LOM-compatible ACLs |
 | PAW Enforcement | None | Domain-joined baseline (v1); PAW group restriction via `GS-LZ-T0-Devices` (v2) |
+| Deployment audit trail | None / file-based | Event Log (immutable) + CSV + console; SIEM-consumable |
+| Change preview | None | `-WhatIf` previews all phases; CSV records the proposed change set |
 
 ---
 
 ## 5. What This Deployer Does Not Do
 
 - **Migrate existing AD objects** into the LZ structure — this is a deliberate
-  manual phase (see Step 4 above)
+  manual phase (see Step 5 above)
 - **Enroll individual accounts into Auth Policy Silos** — always an explicit
   operator action via `Invoke-LZSiloEnrollment.ps1` (never automatic)
 - **Populate GPO security settings arbitrarily** — only the T0 hardening

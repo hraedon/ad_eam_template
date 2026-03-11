@@ -28,7 +28,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZGroups {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][ValidateRange(2, 10)][int]$TierCount,
@@ -52,18 +52,25 @@ function Deploy-LZGroups {
             -Detail "Container CN=_LZ_Groups already exists; no changes made."
     }
     catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-        try {
-            New-ADObject -Type Container -Name '_LZ_Groups' -Path $DomainDN -ErrorAction Stop
+        if ($PSCmdlet.ShouldProcess($containerDN, 'New-ADObject (Container)')) {
+            try {
+                New-ADObject -Type Container -Name '_LZ_Groups' -Path $DomainDN -ErrorAction Stop
 
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                -ObjectType 'Container' -ObjectDN $containerDN `
-                -Detail "Created CN=_LZ_Groups container under domain root."
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                    -ObjectType 'Container' -ObjectDN $containerDN `
+                    -Detail "Created CN=_LZ_Groups container under domain root."
+            }
+            catch {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                    -ObjectType 'Container' -ObjectDN $containerDN `
+                    -Detail "Failed to create _LZ_Groups container: $($_.Exception.Message)"
+                throw
+            }
         }
-        catch {
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+        else {
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                 -ObjectType 'Container' -ObjectDN $containerDN `
-                -Detail "Failed to create _LZ_Groups container: $($_.Exception.Message)"
-            throw
+                -Detail "Would create CN=_LZ_Groups container under domain root."
         }
     }
     catch {
@@ -78,6 +85,7 @@ function Deploy-LZGroups {
     # Looks up by SamAccountName so the check is not path-sensitive.
     # ------------------------------------------------------------------
     function New-LZGroup {
+        [CmdletBinding(SupportsShouldProcess)]
         param(
             [string]$Name,
             [string]$Description
@@ -93,25 +101,32 @@ function Deploy-LZGroups {
                 -Detail "Group '$Name' already exists; no changes made."
         }
         catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            try {
-                New-ADGroup `
-                    -Name        $Name `
-                    -SamAccountName $Name `
-                    -GroupScope  Global `
-                    -GroupCategory Security `
-                    -Path        $containerDN `
-                    -Description $Description `
-                    -ErrorAction Stop
+            if ($PSCmdlet.ShouldProcess($dn, 'New-ADGroup')) {
+                try {
+                    New-ADGroup `
+                        -Name        $Name `
+                        -SamAccountName $Name `
+                        -GroupScope  Global `
+                        -GroupCategory Security `
+                        -Path        $containerDN `
+                        -Description $Description `
+                        -ErrorAction Stop
 
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                    -ObjectType 'Group' -ObjectDN $dn `
-                    -Detail "Created Global Security group. Description: $Description"
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'Group' -ObjectDN $dn `
+                        -Detail "Created Global Security group. Description: $Description"
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'Group' -ObjectDN $dn `
+                        -Detail "Failed to create group '$Name': $($_.Exception.Message)"
+                    throw
+                }
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'Group' -ObjectDN $dn `
-                    -Detail "Failed to create group '$Name': $($_.Exception.Message)"
-                throw
+                    -Detail "Would create Global Security group. Description: $Description"
             }
         }
         catch {

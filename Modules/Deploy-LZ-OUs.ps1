@@ -35,7 +35,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZOUs {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][ValidateRange(2, 10)][int]$TierCount,
@@ -50,6 +50,7 @@ function Deploy-LZOUs {
     # $Path  - the parent DN under which the OU will be created
     # ------------------------------------------------------------------
     function New-LZOU {
+        [CmdletBinding(SupportsShouldProcess)]
         param(
             [string]$Name,
             [string]$Path
@@ -65,23 +66,30 @@ function Deploy-LZOUs {
                 -Detail "OU already exists; no changes made."
         }
         catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            # OU does not exist — create it.
-            try {
-                New-ADOrganizationalUnit `
-                    -Name $Name `
-                    -Path $Path `
-                    -ProtectedFromAccidentalDeletion $true `
-                    -ErrorAction Stop
+            # OU does not exist — create it (or preview creation in WhatIf mode).
+            if ($PSCmdlet.ShouldProcess($dn, 'New-ADOrganizationalUnit')) {
+                try {
+                    New-ADOrganizationalUnit `
+                        -Name $Name `
+                        -Path $Path `
+                        -ProtectedFromAccidentalDeletion $true `
+                        -ErrorAction Stop
 
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                    -ObjectType 'OU' -ObjectDN $dn `
-                    -Detail "Created OU with ProtectedFromAccidentalDeletion=true."
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'OU' -ObjectDN $dn `
+                        -Detail "Created OU with ProtectedFromAccidentalDeletion=true."
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'OU' -ObjectDN $dn `
+                        -Detail "Failed to create OU: $($_.Exception.Message)"
+                    throw
+                }
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'OU' -ObjectDN $dn `
-                    -Detail "Failed to create OU: $($_.Exception.Message)"
-                throw
+                    -Detail "Would create OU with ProtectedFromAccidentalDeletion=true."
             }
         }
         catch {

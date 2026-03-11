@@ -62,7 +62,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZGPOs {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][string]$DomainFQDN,
@@ -113,6 +113,7 @@ function Deploy-LZGPOs {
     #   The CN of the object is a GUID string prefixed with '{' '}'.
     # ------------------------------------------------------------------
     function New-LZWmiFilter {
+        [CmdletBinding(SupportsShouldProcess)]
         param(
             [string]$FilterName,
             [string]$Description,
@@ -157,33 +158,41 @@ function Deploy-LZGPOs {
 
         $filterDN = "CN=$filterId,$ContainerDN"
 
-        try {
-            New-ADObject `
-                -Type          'msWMI-Som' `
-                -Name          $filterId `
-                -Path          $ContainerDN `
-                -OtherAttributes @{
-                    'msWMI-Name'         = $FilterName
-                    'msWMI-Parm1'        = $Description
-                    'msWMI-Parm2'        = $parm2
-                    'msWMI-Author'       = "$env:USERNAME@$DomainFQDN"
-                    'msWMI-CreationDate' = $timeStr
-                    'msWMI-ChangeDate'   = $timeStr
-                    'msWMI-ID'           = $filterId
-                } `
-                -ErrorAction Stop
+        if ($PSCmdlet.ShouldProcess($filterDN, 'New-ADObject (msWMI-Som)')) {
+            try {
+                New-ADObject `
+                    -Type          'msWMI-Som' `
+                    -Name          $filterId `
+                    -Path          $ContainerDN `
+                    -OtherAttributes @{
+                        'msWMI-Name'         = $FilterName
+                        'msWMI-Parm1'        = $Description
+                        'msWMI-Parm2'        = $parm2
+                        'msWMI-Author'       = "$env:USERNAME@$DomainFQDN"
+                        'msWMI-CreationDate' = $timeStr
+                        'msWMI-ChangeDate'   = $timeStr
+                        'msWMI-ID'           = $filterId
+                    } `
+                    -ErrorAction Stop
 
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                -ObjectType 'WmiFilter' -ObjectDN $filterDN `
-                -Detail "Created WMI filter '$FilterName'. Query: $WqlQuery. Stub -- refine during migration phase."
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                    -ObjectType 'WmiFilter' -ObjectDN $filterDN `
+                    -Detail "Created WMI filter '$FilterName'. Query: $WqlQuery. Stub -- refine during migration phase."
 
-            return $filterId
+                return $filterId
+            }
+            catch {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                    -ObjectType 'WmiFilter' -ObjectDN $filterDN `
+                    -Detail "Failed to create WMI filter '$FilterName': $($_.Exception.Message)"
+                throw
+            }
         }
-        catch {
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+        else {
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                 -ObjectType 'WmiFilter' -ObjectDN $filterDN `
-                -Detail "Failed to create WMI filter '$FilterName': $($_.Exception.Message)"
-            throw
+                -Detail "Would create WMI filter '$FilterName'. Query: $WqlQuery."
+            return $null
         }
     }
 
@@ -209,28 +218,35 @@ function Deploy-LZGPOs {
         }
         catch [System.ArgumentException] {
             # Get-GPO throws ArgumentException when the GPO does not exist.
-            try {
-                $gpo = New-GPO `
-                    -Name    $gpoName `
-                    -Domain  $DomainFQDN `
-                    -Comment "AD Landing Zone Tier $n GPO scaffold. Created by Deploy-ADLandingZone v2. Populate settings via Deploy-LZ-T0Hardening.ps1 (T0) or equivalent hardening scripts." `
-                    -ErrorAction Stop
+            if ($PSCmdlet.ShouldProcess("GPO=$gpoName,$DomainDN", 'New-GPO')) {
+                try {
+                    $gpo = New-GPO `
+                        -Name    $gpoName `
+                        -Domain  $DomainFQDN `
+                        -Comment "AD Landing Zone Tier $n GPO scaffold. Created by Deploy-ADLandingZone v2. Populate settings via Deploy-LZ-T0Hardening.ps1 (T0) or equivalent hardening scripts." `
+                        -ErrorAction Stop
 
-                # Brief pause after New-GPO so the AD object is queryable by
-                # the ActiveDirectory module. New-GPO writes via the GPMC stack
-                # and even on a single DC there can be a few hundred ms before
-                # Get-ADObject sees the new object.
-                Start-Sleep -Milliseconds 800
+                    # Brief pause after New-GPO so the AD object is queryable by
+                    # the ActiveDirectory module. New-GPO writes via the GPMC stack
+                    # and even on a single DC there can be a few hundred ms before
+                    # Get-ADObject sees the new object.
+                    Start-Sleep -Milliseconds 800
 
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                    -ObjectType 'GPO' -ObjectDN "GPO=$gpoName,$DomainDN" `
-                    -Detail "Created GPO '$gpoName' (GUID: $($gpo.Id)). Empty scaffold; settings are populated by tier-specific hardening scripts."
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                        -ObjectType 'GPO' -ObjectDN "GPO=$gpoName,$DomainDN" `
+                        -Detail "Created GPO '$gpoName' (GUID: $($gpo.Id)). Empty scaffold; settings are populated by tier-specific hardening scripts."
+                }
+                catch {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                        -ObjectType 'GPO' -ObjectDN "GPO=$gpoName,$DomainDN" `
+                        -Detail "Failed to create GPO '$gpoName': $($_.Exception.Message)"
+                    throw
+                }
             }
-            catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+            else {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                     -ObjectType 'GPO' -ObjectDN "GPO=$gpoName,$DomainDN" `
-                    -Detail "Failed to create GPO '$gpoName': $($_.Exception.Message)"
-                throw
+                    -Detail "Would create GPO '$gpoName' (empty scaffold)."
             }
         }
         catch {
@@ -250,7 +266,7 @@ function Deploy-LZGPOs {
                 -WqlQuery     $wqlQuery `
                 -ContainerDN  $wmiFilterContainerDN
 
-            if ($filterId) {
+            if ($filterId -and $gpo) {
                 # Link the WMI filter to the GPO by setting the gPCWQLFilter attribute
                 # on the GPO's AD object. Format: "[<DomainDN>;<filterId>;0]"
                 $gpoDN     = "CN={$($gpo.Id.ToString().ToUpper())},CN=Policies,CN=System,$DomainDN"
@@ -278,10 +294,17 @@ function Deploy-LZGPOs {
                             -Detail "WMI filter '$filterName' already linked to GPO '$gpoName'; no changes made."
                     }
                     else {
-                        Set-ADObject -Identity $gpoDN -Replace @{ gPCWQLFilter = $filterRef } -ErrorAction Stop
-                        Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
-                            -ObjectType 'GPO' -ObjectDN $gpoDN `
-                            -Detail "Linked WMI filter '$filterName' ($filterId) to GPO '$gpoName'."
+                        if ($PSCmdlet.ShouldProcess($gpoDN, "Set-ADObject (link WMI filter '$filterName')")) {
+                            Set-ADObject -Identity $gpoDN -Replace @{ gPCWQLFilter = $filterRef } -ErrorAction Stop
+                            Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
+                                -ObjectType 'GPO' -ObjectDN $gpoDN `
+                                -Detail "Linked WMI filter '$filterName' ($filterId) to GPO '$gpoName'."
+                        }
+                        else {
+                            Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
+                                -ObjectType 'GPO' -ObjectDN $gpoDN `
+                                -Detail "Would link WMI filter '$filterName' ($filterId) to GPO '$gpoName'."
+                        }
                     }
                 }
                 catch {
@@ -290,6 +313,12 @@ function Deploy-LZGPOs {
                         -Detail "Failed to link WMI filter to GPO '$gpoName': $($_.Exception.Message)"
                     # Non-fatal: GPO can still function without WMI filter. Log and continue.
                 }
+            }
+            elseif (-not $gpo) {
+                # WhatIf mode: GPO was not created, so linkage cannot be evaluated.
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
+                    -ObjectType 'GPO' -ObjectDN "GPO=$gpoName,$DomainDN" `
+                    -Detail "Would link WMI filter '$filterName' to GPO '$gpoName' once GPO exists."
             }
         }
         catch {
@@ -302,38 +331,53 @@ function Deploy-LZGPOs {
         # --------------------------------------------------------------
         # Step 3: Link the GPO to the tier OU.
         # --------------------------------------------------------------
-        $existingLink = $null
-        try {
-            $inheritanceInfo = Get-GPInheritance -Target $tierOuPath -Domain $DomainFQDN -ErrorAction Stop
-            $existingLink = $inheritanceInfo.GpoLinks | Where-Object { $_.DisplayName -eq $gpoName }
-        }
-        catch {
-            # Unable to query inheritance -- will attempt link creation anyway.
-        }
-
-        if ($existingLink) {
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Skipped' `
+        if (-not $gpo) {
+            # WhatIf mode: GPO was not created, so we cannot link it.
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                 -ObjectType 'GPO' -ObjectDN $tierOuPath `
-                -Detail "GPO '$gpoName' is already linked to '$tierOuPath'; no changes made."
+                -Detail "Would link GPO '$gpoName' to '$tierOuPath' (LinkEnabled=Yes) once GPO exists."
         }
         else {
+            $existingLink = $null
             try {
-                New-GPLink `
-                    -Name    $gpoName `
-                    -Target  $tierOuPath `
-                    -Domain  $DomainFQDN `
-                    -LinkEnabled Yes `
-                    -ErrorAction Stop | Out-Null
-
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                    -ObjectType 'GPO' -ObjectDN $tierOuPath `
-                    -Detail "Linked GPO '$gpoName' to '$tierOuPath' (LinkEnabled=Yes)."
+                $inheritanceInfo = Get-GPInheritance -Target $tierOuPath -Domain $DomainFQDN -ErrorAction Stop
+                $existingLink = $inheritanceInfo.GpoLinks | Where-Object { $_.DisplayName -eq $gpoName }
             }
             catch {
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                # Unable to query inheritance -- will attempt link creation anyway.
+            }
+
+            if ($existingLink) {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Skipped' `
                     -ObjectType 'GPO' -ObjectDN $tierOuPath `
-                    -Detail "Failed to link GPO '$gpoName' to '$tierOuPath': $($_.Exception.Message)"
-                throw
+                    -Detail "GPO '$gpoName' is already linked to '$tierOuPath'; no changes made."
+            }
+            else {
+                if ($PSCmdlet.ShouldProcess($tierOuPath, "New-GPLink '$gpoName'")) {
+                    try {
+                        New-GPLink `
+                            -Name    $gpoName `
+                            -Target  $tierOuPath `
+                            -Domain  $DomainFQDN `
+                            -LinkEnabled Yes `
+                            -ErrorAction Stop | Out-Null
+
+                        Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                            -ObjectType 'GPO' -ObjectDN $tierOuPath `
+                            -Detail "Linked GPO '$gpoName' to '$tierOuPath' (LinkEnabled=Yes)."
+                    }
+                    catch {
+                        Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                            -ObjectType 'GPO' -ObjectDN $tierOuPath `
+                            -Detail "Failed to link GPO '$gpoName' to '$tierOuPath': $($_.Exception.Message)"
+                        throw
+                    }
+                }
+                else {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
+                        -ObjectType 'GPO' -ObjectDN $tierOuPath `
+                        -Detail "Would link GPO '$gpoName' to '$tierOuPath' (LinkEnabled=Yes)."
+                }
             }
         }
 
@@ -348,10 +392,17 @@ function Deploy-LZGPOs {
                     -Detail "GPO inheritance already blocked on '$tierOuPath'; no changes made."
             }
             else {
-                Set-GPInheritance -Target $tierOuPath -Domain $DomainFQDN -IsBlocked Yes -ErrorAction Stop | Out-Null
-                Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
-                    -ObjectType 'GPO' -ObjectDN $tierOuPath `
-                    -Detail "Blocked GPO inheritance on '$tierOuPath'. Parent domain GPOs will not flow into this tier OU."
+                if ($PSCmdlet.ShouldProcess($tierOuPath, 'Set-GPInheritance -IsBlocked Yes')) {
+                    Set-GPInheritance -Target $tierOuPath -Domain $DomainFQDN -IsBlocked Yes -ErrorAction Stop | Out-Null
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
+                        -ObjectType 'GPO' -ObjectDN $tierOuPath `
+                        -Detail "Blocked GPO inheritance on '$tierOuPath'. Parent domain GPOs will not flow into this tier OU."
+                }
+                else {
+                    Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
+                        -ObjectType 'GPO' -ObjectDN $tierOuPath `
+                        -Detail "Would block GPO inheritance on '$tierOuPath'."
+                }
             }
         }
         catch {

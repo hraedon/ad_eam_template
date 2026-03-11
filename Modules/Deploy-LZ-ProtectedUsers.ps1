@@ -30,7 +30,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZProtectedUsers {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][string]$LogPath
@@ -96,42 +96,50 @@ function Deploy-LZProtectedUsers {
     # ------------------------------------------------------------------
     # Add GS-LZ-T0-Admins to Protected Users.
     # ------------------------------------------------------------------
-    try {
-        Add-ADGroupMember -Identity $protectedUsersGroup -Members $t0AdminGroup -ErrorAction Stop
+    if ($PSCmdlet.ShouldProcess($t0AdminDN, "Add-ADGroupMember (add to 'Protected Users')")) {
+        try {
+            Add-ADGroupMember -Identity $protectedUsersGroup -Members $t0AdminGroup -ErrorAction Stop
 
-        Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
-            -ObjectType 'GroupMembership' -ObjectDN $t0AdminDN `
-            -Detail "'$t0AdminName' added to 'Protected Users' ($($protectedUsersGroup.DistinguishedName))."
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
+                -ObjectType 'GroupMembership' -ObjectDN $t0AdminDN `
+                -Detail "'$t0AdminName' added to 'Protected Users' ($($protectedUsersGroup.DistinguishedName))."
+        }
+        catch {
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                -ObjectType 'GroupMembership' -ObjectDN $t0AdminDN `
+                -Detail "Failed to add '$t0AdminName' to 'Protected Users': $($_.Exception.Message)"
+            throw
+        }
+
+        # ------------------------------------------------------------------
+        # Mandatory console warning block -- spec requires this to be prominent
+        # and impossible to miss in scrollback. Written to host (not log only)
+        # using a bordered block with a high-contrast colour scheme.
+        # Only displayed when the membership change was actually performed.
+        # ------------------------------------------------------------------
+        $border  = '!' * 78
+        $padding = '!' + (' ' * 76) + '!'
+
+        Write-Host ''
+        Write-Host $border                                                    -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  WARNING: GS-LZ-T0-Admins has been added to Protected Users.              !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  All accounts placed into this group or any member group will immediately  !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  lose the ability to use NTLM, DES, or RC4 authentication. Kerberos is    !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  required. TGTs will not renew beyond 4 hours, meaning active sessions     !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  will be terminated more frequently.                                       !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  Before moving any account into a group that is a member of Protected      !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  Users, verify it can authenticate exclusively via Kerberos and that the   !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host '!  4-hour TGT limit is operationally acceptable.                             !' -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host $border                                                    -ForegroundColor Yellow -BackgroundColor DarkRed
+        Write-Host ''
     }
-    catch {
-        Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+    else {
+        Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
             -ObjectType 'GroupMembership' -ObjectDN $t0AdminDN `
-            -Detail "Failed to add '$t0AdminName' to 'Protected Users': $($_.Exception.Message)"
-        throw
+            -Detail "Would add '$t0AdminName' to 'Protected Users'. All member accounts would immediately require Kerberos-only auth with 4-hour TGT cap."
     }
-
-    # ------------------------------------------------------------------
-    # Mandatory console warning block -- spec requires this to be prominent
-    # and impossible to miss in scrollback. Written to host (not log only)
-    # using a bordered block with a high-contrast colour scheme.
-    # ------------------------------------------------------------------
-    $border  = '!' * 78
-    $padding = '!' + (' ' * 76) + '!'
-
-    Write-Host ''
-    Write-Host $border                                                    -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  WARNING: GS-LZ-T0-Admins has been added to Protected Users.              !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  All accounts placed into this group or any member group will immediately  !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  lose the ability to use NTLM, DES, or RC4 authentication. Kerberos is    !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  required. TGTs will not renew beyond 4 hours, meaning active sessions     !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  will be terminated more frequently.                                       !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  Before moving any account into a group that is a member of Protected      !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  Users, verify it can authenticate exclusively via Kerberos and that the   !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host '!  4-hour TGT limit is operationally acceptable.                             !' -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host $padding                                                   -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host $border                                                    -ForegroundColor Yellow -BackgroundColor DarkRed
-    Write-Host ''
 }

@@ -40,7 +40,7 @@
     Full path to the CSV log file.
 #>
 function Deploy-LZACLs {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$DomainDN,
         [Parameter(Mandatory)][ValidateRange(2, 10)][int]$TierCount,
@@ -81,6 +81,7 @@ function Deploy-LZACLs {
     # changes (e.g. rights expansion) to be detected and applied.
     # ------------------------------------------------------------------
     function Add-LZAce {
+        [CmdletBinding(SupportsShouldProcess)]
         param(
             [string]$OuDN,
             [System.Security.Principal.SecurityIdentifier]$GroupSid,
@@ -148,19 +149,26 @@ function Deploy-LZACLs {
             [Guid]::Empty
         )
 
-        try {
-            $acl.AddAccessRule($rule)
-            Set-Acl -Path $adPath -AclObject $acl -ErrorAction Stop
+        if ($PSCmdlet.ShouldProcess($OuDN, "Set-Acl (add ACE for '$GroupName')")) {
+            try {
+                $acl.AddAccessRule($rule)
+                Set-Acl -Path $adPath -AclObject $acl -ErrorAction Stop
 
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
-                -ObjectType 'ACL' -ObjectDN $OuDN `
-                -Detail "ACE applied for '$GroupName': Rights=$Rights, Inheritance=$Inheritance. $Detail"
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Created' `
+                    -ObjectType 'ACL' -ObjectDN $OuDN `
+                    -Detail "ACE applied for '$GroupName': Rights=$Rights, Inheritance=$Inheritance. $Detail"
+            }
+            catch {
+                Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+                    -ObjectType 'ACL' -ObjectDN $OuDN `
+                    -Detail "Failed to apply ACE for '$GroupName': $($_.Exception.Message)"
+                throw
+            }
         }
-        catch {
-            Write-LZLog -LogPath $LogPath -Module $module -Action 'Error' `
+        else {
+            Write-LZLog -LogPath $LogPath -Module $module -Action 'WhatIf' `
                 -ObjectType 'ACL' -ObjectDN $OuDN `
-                -Detail "Failed to apply ACE for '$GroupName': $($_.Exception.Message)"
-            throw
+                -Detail "Would add ACE for '$GroupName': Rights=$Rights, Inheritance=$Inheritance. $Detail"
         }
     }
 
