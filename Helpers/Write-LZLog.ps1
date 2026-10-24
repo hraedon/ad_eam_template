@@ -13,7 +13,7 @@
 
     Event IDs:
         1001 Created | 1002 Skipped | 1003 Modified | 1004 Error
-        1005 Warning | 1006 Info    | 1007 WhatIf
+        1005 Warning | 1006 Info    | 1007 WhatIf | 1008 Removed
 
 .PARAMETER LogPath
     Full path to the CSV log file. Created on first write; appended on subsequent calls.
@@ -22,7 +22,7 @@
     The deployer module producing this log entry (e.g. PreFlight, OUs, Groups).
 
 .PARAMETER Action
-    Nature of the action: Created, Skipped, Modified, Error, Warning, Info, or WhatIf.
+    Nature of the action: Created, Skipped, Modified, Removed, Error, Warning, Info, or WhatIf.
     WhatIf entries are written during -WhatIf preview runs; no AD objects are created.
 
 .PARAMETER ObjectType
@@ -42,7 +42,7 @@ function Write-LZLog {
         [Parameter(Mandatory)][string]$LogPath,
         [Parameter(Mandatory)][string]$Module,
         [Parameter(Mandatory)]
-        [ValidateSet('Created','Skipped','Modified','Error','Warning','Info','WhatIf')]
+        [ValidateSet('Created','Skipped','Modified','Removed','Error','Warning','Info','WhatIf')]
         [string]$Action,
         [Parameter(Mandatory)][string]$ObjectType,
         [Parameter(Mandatory)][string]$ObjectDN,
@@ -69,6 +69,7 @@ function Write-LZLog {
         'Created' { 'Green'    }
         'Skipped' { 'Yellow'   }
         'Modified'{ 'Cyan'     }
+        'Removed' { 'Cyan'     }
         'Error'   { 'Red'      }
         'Warning' { 'Magenta'  }
         'WhatIf'  { 'DarkCyan' }
@@ -115,6 +116,7 @@ function Write-LZLog {
             'Created'  { 1001 }
             'Skipped'  { 1002 }
             'Modified' { 1003 }
+            'Removed'  { 1008 }
             'Error'    { 1004 }
             'Warning'  { 1005 }
             'Info'     { 1006 }
