@@ -48,7 +48,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory)]
-    [ValidateRange(2, 9)]
+    [ValidateRange(2, 10)]
     [int]    $TierCount,
 
     [Parameter(Mandatory)]

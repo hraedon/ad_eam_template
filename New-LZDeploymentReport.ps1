@@ -633,12 +633,12 @@ Add-Line ""
 if (-not $gpModuleAvailable) {
     Add-Line "_GroupPolicy module not available. Install the GPMC RSAT feature to include this section._"
     Add-Line ""
-    Add-Line "```powershell"
+    Add-Line '```powershell'
     Add-Line "# Server"
     Add-Line "Add-WindowsFeature GPMC"
     Add-Line "# Windows 10/11"
     Add-Line "Add-WindowsCapability -Online -Name Rsat.GroupPolicy.Management.Tools~~~~0.0.1.0"
-    Add-Line "```"
+    Add-Line '```'
 }
 else {
     $wmiContainerDN = "CN=SOM,CN=WMIPolicy,CN=System,$DomainDN"

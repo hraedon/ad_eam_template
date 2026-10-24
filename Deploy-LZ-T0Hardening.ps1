@@ -69,6 +69,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 . "$PSScriptRoot\Helpers\Write-LZLog.ps1"
+. "$PSScriptRoot\Helpers\Get-LZTemplateBytes.ps1"
 
 # ------------------------------------------------------------------
 # Module imports and domain context
@@ -217,18 +218,14 @@ SeDenyInteractiveLogonRight = *$sidT1Admins,*$sidT2Admins
 SeDenyRemoteInteractiveLogonRight = *$sidT1Admins,*$sidT2Admins
 "@
 
-# Idempotency: compare hash of new content with existing file (if any).
+# Idempotency: compare hash of the exact bytes we would write (UTF-16 LE + BOM)
+# with the hash of the existing file's bytes, so like is compared with like.
+$newBytes     = Get-LZTemplateBytes -Content $newContent
+$newHash      = Get-LZBytesHash -Bytes $newBytes
 $existingHash = $null
-$newHash      = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-    [System.Text.Encoding]::Unicode.GetBytes($newContent)
-) | ForEach-Object { $_.ToString('x2') }
-$newHash = $newHash -join ''
 
 if (Test-Path $gptTmplPath) {
-    $existingBytes = [System.IO.File]::ReadAllBytes($gptTmplPath)
-    $existingHash  = [System.Security.Cryptography.SHA256]::Create().ComputeHash($existingBytes) |
-        ForEach-Object { $_.ToString('x2') }
-    $existingHash  = $existingHash -join ''
+    $existingHash = Get-LZBytesHash -Bytes ([System.IO.File]::ReadAllBytes($gptTmplPath))
 }
 
 $contentChanged = ($existingHash -ne $newHash)
@@ -240,7 +237,7 @@ if (-not $contentChanged) {
 }
 else {
     # Write GptTmpl.inf as UTF-16 LE with BOM (required for Windows INF parsing).
-    [System.IO.File]::WriteAllText($gptTmplPath, $newContent, [System.Text.Encoding]::Unicode)
+    [System.IO.File]::WriteAllBytes($gptTmplPath, $newBytes)
 
     Write-LZLog -LogPath $LogPath -Module $module -Action 'Modified' `
         -ObjectType 'GPO' -ObjectDN $gptTmplPath `

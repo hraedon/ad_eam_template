@@ -60,7 +60,7 @@ function Remove-LZGPOs {
                     Write-LZLog -LogPath $LogPath -Module 'RemoveGPOs' -Action 'Error' `
                         -ObjectType 'OU' -ObjectDN $tierOuDN `
                         -Detail "Failed to re-enable inheritance: $($_.Exception.Message)"
-                    Write-Warning "  [Error] Inheritance re-enable failed on $tierOuDN: $($_.Exception.Message)"
+                    Write-Warning "  [Error] Inheritance re-enable failed on ${tierOuDN}: $($_.Exception.Message)"
                 }
 
                 # Remove the GPO object itself.

@@ -34,7 +34,7 @@ It never creates the KDS root key, never changes existing ACEs, never modifies o
 - Run from an administrative workstation, as a Domain Admin, in a change window.
 - Preview with `-WhatIf` and keep the CSV as the change record. The Event Log copy (source `ADLandingZone`) is harder to alter than the CSV.
 - `CC-PreFlight-Test.ps1` creates and deletes temporary objects (OUs, a group, an auth policy and silo, a user briefly added to Protected Users). Do not run it where that is not allowed. A failed check can leave them behind.
-- Known defects that affect safe operation (removal logging, parse failures in two scripts, T0 hardening rewriting its file on every run) are listed in the README under "Known issues".
+- Known issues that affect safe operation are listed in the README under "Known issues".
 - The tutorial suggests moving domain controllers into `OU=_LZ_T0_Devices`. Domain controllers are normally in the Domain Controllers OU, where the Default Domain Controllers Policy is linked, and tier OUs block GPO inheritance. This repository does not address what that move does to DC policy. Test it before doing it.
 - Code signing: sign the scripts for AllSigned environments (`Helpers\Sign-LZScripts.ps1`). Do not use the `Invoke-Expression` workaround in production.
 

@@ -186,10 +186,6 @@ Protected Users, gMSAs, and GPO scaffolding — in a single reviewable artifact:
 .\New-LZDeploymentReport.ps1 -TierCount 3 -OutputPath C:\Reports\LZ-Report.md
 ```
 
-**Currently broken:** the script has a syntax error (line 641) and does not
-run. See "Known issues" in the README. Use the manual checks under
-"Verification" in the README until it is fixed.
-
 The script is read-only. It queries live AD and writes a structured Markdown file
 at `OutputPath`. Use it to:
 
