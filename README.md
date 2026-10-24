@@ -4,7 +4,7 @@ Modular PowerShell deployer for an Enterprise Access Model (EAM) tiered Landing 
 
 **Who it is for:** a Windows / Active Directory administrator who wants tier 0 / 1 / 2 OUs, tier admin groups, delegated permissions, authentication policies and silos, and GPO scaffolding in place before moving accounts and machines into tiers.
 
-**Status:** the orchestrator reports version 2.6 (`[v2.6]` banner); releases are tagged `v2.5.0` and `v2.6.0`, and history is in [CHANGELOG.md](CHANGELOG.md). Read [Known issues](#known-issues) before running anything. Two scripts do not currently parse and the removal logging is wrong.
+**Status:** the orchestrator reports version 2.6 (`[v2.6]` banner); releases are tagged `v2.5.0` and `v2.6.0`, and history is in [CHANGELOG.md](CHANGELOG.md). Read [Known issues](#known-issues) before running anything.
 
 **What it does not do:** it does not move existing objects into the structure, enroll accounts in silos, create a KDS root key, populate GPOs beyond the optional T0 hardening template, or touch trusts, other forests or Entra ID. See [What is out of scope](#what-is-out-of-scope). Security details: [SECURITY.md](SECURITY.md). A longer walkthrough for operators: [TUTORIAL.md](TUTORIAL.md).
 
@@ -256,7 +256,7 @@ Remove-ADLandingZone.ps1       -- Removal orchestrator (requires 'REMOVE' confir
 CC-PreFlight-Test.ps1          -- Standalone access check (creates and deletes temporary objects)
 Deploy-LZ-T0Hardening.ps1      -- Operator tool: writes T0 GPO security template (GptTmpl.inf)
 Invoke-LZSiloEnrollment.ps1    -- Operator tool: enrolls accounts into Auth Policy Silos
-New-LZDeploymentReport.ps1     -- Operator tool: queries live AD and produces Markdown handoff report (does not currently parse, see Known issues)
+New-LZDeploymentReport.ps1     -- Operator tool: queries live AD and produces Markdown handoff report
 
 Helpers\
   Write-LZLog.ps1              -- Structured logging helper (console + CSV + Event Log)
@@ -275,7 +275,7 @@ Modules\
   Remove-LZ-ProtectedUsers.ps1 -- Removal: Protected Users membership
   Remove-LZ-AuthPolicies.ps1   -- Removal: Auth Silos and Policies
   Remove-LZ-gMSAs.ps1          -- Removal: gMSA accounts
-  Remove-LZ-GPOs.ps1           -- Removal: GPO links, WMI filters, GPO objects (does not currently parse, see Known issues)
+  Remove-LZ-GPOs.ps1           -- Removal: GPO links, WMI filters, GPO objects
   Remove-LZ-Groups.ps1         -- Removal: Security groups and container
   Remove-LZ-OUs.ps1            -- Removal: OUs (sub-OUs first, then tier OUs)
 
@@ -313,11 +313,11 @@ The GPO is linked to `OU=_LZ_T0`, so it applies only to computers placed in that
 
 Run it only after confirming all T0 admin accounts authenticate by Kerberos; applied too early it can lock administrators out of T0 infrastructure.
 
-Idempotency note: the script is meant to skip rewriting when the content is unchanged, but its hash comparison always differs (see [Known issues](#known-issues)), so each run rewrites the file and increments the GPO version.
+Idempotency: the script hashes the exact bytes it would write (UTF-16 LE with BOM) and skips the write, and the GPO version bump, when the existing file is identical.
 
 ### Deployment report (`New-LZDeploymentReport.ps1`)
 
-Read-only operator script that queries live AD state and produces a Markdown handoff document for security architects, auditors, or change advisory boards. No objects are created or modified. **It does not currently parse (see [Known issues](#known-issues)), so it cannot be run until fixed.**
+Read-only operator script that queries live AD state and produces a Markdown handoff document for security architects, auditors, or change advisory boards. No objects are created or modified.
 
 ```powershell
 .\New-LZDeploymentReport.ps1 -TierCount 3 -OutputPath C:\Reports\LZ-Report.md
@@ -375,7 +375,7 @@ Get-ADGroupMember 'Protected Users' | Where-Object Name -like 'GS-LZ-*'
 
 ## Removal
 
-`Remove-ADLandingZone.ps1` removes all `_LZ_` OUs, `GS-LZ-` groups, GPOs, WMI filters, Auth Policies, Auth Silos, and gMSA accounts created by the deployer. **Read [Known issues](#known-issues) first: the GPO removal module does not parse, so the script is expected to stop at phase 4, and deletions are logged as errors.**
+`Remove-ADLandingZone.ps1` removes all `_LZ_` OUs, `GS-LZ-` groups, GPOs, WMI filters, Auth Policies, Auth Silos, and gMSA accounts created by the deployer. Read [Known issues](#known-issues) first.
 
 ```powershell
 # Interactive (prompts for 'REMOVE' confirmation)
@@ -385,7 +385,7 @@ Get-ADGroupMember 'Protected Users' | Where-Object Name -like 'GS-LZ-*'
 .\Remove-ADLandingZone.ps1 -TierCount 3 -LogPath C:\Logs\LZ-Remove.csv -Force
 ```
 
-Without `-Force`, the script requires you to type `REMOVE` at the console prompt before any deletion. `-TierCount` must match the original deployment, and the script accepts 2 to 9 (the deployer accepts up to 10). Removal order is the reverse of deployment (Protected Users, Auth Silos/Policies, gMSAs, GPOs, Groups, OUs). Removing `GS-LZ-T0-Admins` from Protected Users takes effect immediately for every account in that group.
+Without `-Force`, the script requires you to type `REMOVE` at the console prompt before any deletion. `-TierCount` must match the original deployment, and the script accepts 2 to 10, the same range as the deployer. Removal order is the reverse of deployment (Protected Users, Auth Silos/Policies, gMSAs, GPOs, Groups, OUs). Removing `GS-LZ-T0-Admins` from Protected Users takes effect immediately for every account in that group.
 
 **Note:** Any user or computer objects you placed inside `_LZ_` OUs must be moved or removed before running the removal script; the OU removal step fails if OUs are non-empty.
 
@@ -413,28 +413,23 @@ Available tags: `OUs`, `Groups`, `ACLs`, `AuthPolicies`, `ProtectedUsers`, `gMSA
 
 Tests are read-only — they do not create or modify AD objects. The Canary tests include one test that attempts (and expects to fail) an OU deletion; the OU is never actually removed.
 
-Static checks run for this documentation pass (PowerShell 7.6.6 on Linux, no AD): 2 of the 32 `.ps1` files fail to parse (see [Known issues](#known-issues)); the Pester files cannot load without the `ActiveDirectory` module, so none could run. PSScriptAnalyzer 1.25.0 with default rules reports no error-level findings besides those parse errors; the warnings are mostly `PSAvoidUsingWriteHost` (271), plus a few empty catch blocks, missing BOMs, and singular-noun naming. The repository has no PSScriptAnalyzer settings file and no CI configuration.
+Static checks (PowerShell 7.6.6 on Linux, no AD): all `.ps1` files parse (`Tests/Unit/ParseAll.Tests.ps1`). PSScriptAnalyzer 1.25.0 with default rules reports no error-level findings; the warnings are mostly `PSAvoidUsingWriteHost`, plus a few empty catch blocks, missing BOMs, and singular-noun naming. Unit tests that need no AD live in `Tests/Unit/` (`Invoke-Pester Tests/Unit`, Pester 5 or later): parse check, `Write-LZLog` action set, T0 template hash, TierCount range. The live-domain tests above still need AD. The repository has no PSScriptAnalyzer settings file and no CI configuration.
 
 ---
 
 ## Known issues
 
-Found by reading the code and parsing the scripts. The parse failures and the logging mismatch were confirmed by running the PowerShell parser and function here; the rest are from the code. None was run against a live domain. They are documented, not fixed (this documentation pass changed no code).
+Found by reading the code; none was run against a live domain. Earlier entries (two scripts that did not parse, removal logged as errors, T0 hardening always rewriting `GptTmpl.inf`, the removal `-TierCount` limit of 9) were fixed; see [CHANGELOG.md](CHANGELOG.md). The remaining items are design limitations or unfixed behaviour.
 
 | # | Issue | Evidence | Effect and workaround |
 |---|---|---|---|
-| 1 | `Modules\Remove-LZ-GPOs.ps1` does not parse | Line 63: `"... on $tierOuDN: $(...)"`. In PowerShell, `$name:` followed by text is read as a drive-qualified variable and is a parse error. The parser reports "Variable reference is not valid". | `Remove-ADLandingZone.ps1` dot-sources this file in phase 4, so it is expected to stop there after phases 1 to 3 (Protected Users, auth silos/policies, gMSAs). GPOs, WMI filters, groups and OUs are left. Fix: write `${tierOuDN}:`. Until fixed, remove those objects by hand or by a patched copy. |
-| 2 | `New-LZDeploymentReport.ps1` does not parse | Line 641: `Add-Line "```"` has an unterminated string (backtick-escaped quote). Parser error reported first at line 701 under PowerShell 7.6.6. Not tested in Windows PowerShell 5.1, but the quoting rule is the same. | The report cannot be generated. Fix the quoting on line 641 so the string ends (a literal three-backtick line needs the backticks written as single-quoted text). |
-| 3 | Removal logs every deletion as an error | `Write-LZLog` accepts only `Created, Skipped, Modified, Error, Warning, Info, WhatIf`; the removal modules log `Action 'Removed'`. Calling it throws `ParameterBindingValidationException` (reproduced). The throw happens after the delete, inside the module's `try`, so its `catch` records an `Error`. | Objects are deleted but the CSV shows `Error` rows and the summary shows `Removed: 0`. Read the console `[Removed]`/`[Skipped]` lines and check AD directly. Fix: add `'Removed'` to the `ValidateSet`. |
-| 4 | T0 hardening always rewrites `GptTmpl.inf` | The new-content hash is taken over the text without a byte-order mark, but the file is written with `Encoding.Unicode`, which adds one. The two hashes never match (reproduced on a sample). | Each run rewrites the file and increments the GPO version. Harmless but not idempotent as described. |
-| 5 | Auth policies and silos exist only for tiers 0, 1, 2 | `Deploy-LZ-AuthPolicies.ps1` has three fixed configurations. | With `-TierCount` of 4 or more, tiers 3 and above get OUs, groups, ACLs, gMSAs and GPOs but no policy or silo. Their WMI filter uses the workstation query. |
-| 6 | TierCount limits differ | Deployer, report, tests accept 2 to 10; `Remove-ADLandingZone.ps1` accepts 2 to 9. | A 10-tier deployment cannot be removed with the script. |
-| 7 | `GS-LZ-Global-Readers` does not cover every `_LZ_` OU | `Deploy-LZ-ACLs.ps1` applies the ACE to the tier OUs only. The group's description says "all _LZ_ OUs". | `_LZ_Quarantine` and `CN=_LZ_Groups` are not covered. |
-| 8 | `Deploy-LZ-T0Hardening.ps1` needs 3 or more tiers | It resolves `GS-LZ-T2-Admins` and exits if it does not exist. | Not usable with `-TierCount 2`. |
-| 9 | The deployer's end-of-run hint for T0 hardening omits `-LogPath` | The script's `-LogPath` is mandatory. | PowerShell prompts for it. |
-| 10 | Phase 8 is a hard stop without a KDS root key | `Deploy-LZgMSAs` throws if no effective key exists; pre-flight only warns. | Phase 9 does not run. Use `-SkipGmsas` or create the key and wait. Re-running is safe. |
-| 11 | `Remove-ADLandingZone.ps1` has no usable `-WhatIf` | Its help says `-WhatIf` does not reach the removal modules. | Do not use it as a preview. |
-| 12 | The Domain Admin check is a name match | `-match 'Domain Admins'` against token group names. | Passes any group with that text; may fail in non-English domains. |
+| 1 | Auth policies and silos exist only for tiers 0, 1, 2 | `Deploy-LZ-AuthPolicies.ps1` has three fixed configurations. | With `-TierCount` of 4 or more, tiers 3 and above get OUs, groups, ACLs, gMSAs and GPOs but no policy or silo. Their WMI filter uses the workstation query. |
+| 2 | `GS-LZ-Global-Readers` does not cover every `_LZ_` OU | `Deploy-LZ-ACLs.ps1` applies the ACE to the tier OUs only. The group's description says "all _LZ_ OUs". | `_LZ_Quarantine` and `CN=_LZ_Groups` are not covered. |
+| 3 | `Deploy-LZ-T0Hardening.ps1` needs 3 or more tiers | It resolves `GS-LZ-T2-Admins` and exits if it does not exist. | Not usable with `-TierCount 2`. |
+| 4 | The deployer's end-of-run hint for T0 hardening omits `-LogPath` | The script's `-LogPath` is mandatory. | PowerShell prompts for it. |
+| 5 | Phase 8 is a hard stop without a KDS root key | `Deploy-LZgMSAs` throws if no effective key exists; pre-flight only warns. | Phase 9 does not run. Use `-SkipGmsas` or create the key and wait. Re-running is safe. |
+| 6 | `Remove-ADLandingZone.ps1` has no usable `-WhatIf` | Its help says `-WhatIf` does not reach the removal modules. | Do not use it as a preview. |
+| 7 | The Domain Admin check is a name match | `-match 'Domain Admins'` against token group names. | Passes any group with that text; may fail in non-English domains. |
 
 ---
 
@@ -454,7 +449,6 @@ Found by reading the code and parsing the scripts. The parse failures and the lo
 | Summary shows 0 log entries after work was done | The CSV could not be written or read. Check the path, permissions and encoding. |
 | No event log entries | Run elevated once so the `ADLandingZone` source can be registered. CSV and console are unaffected. |
 | OU removal fails | The OU contains objects. Move or delete them. |
-| Parse errors when running a script | See [Known issues](#known-issues), items 1 and 2. |
 
 ---
 
@@ -506,9 +500,9 @@ and update the parameter names in `Deploy-LZ-AuthPolicies.ps1` accordingly. (Tha
 
 **Build, test, release.** There is no build or CI. Test by running the deployer with `-WhatIf` and then for real in a lab domain, then `Tests\Invoke-LZPesterTests.ps1`. Release by updating [CHANGELOG.md](CHANGELOG.md) and the version banner in `Deploy-ADLandingZone.ps1`; tag the release commit (`v2.6.0` is the latest tag); there is no packaging step. If you ship to an AllSigned environment, re-sign every file after each edit.
 
-**Conventions.** New objects need an existence check, a `ShouldProcess` guard, and log rows for Created / Skipped / WhatIf. Add any new log action to the `ValidateSet` in `Write-LZLog` first (see Known issues item 3). In double-quoted strings, write `${var}:` not `$var:`. Keep the code compatible with Windows PowerShell 5.1.
+**Conventions.** New objects need an existence check, a `ShouldProcess` guard, and log rows for Created / Skipped / WhatIf. Add any new log action to the `ValidateSet` in `Write-LZLog` first. In double-quoted strings, write `${var}:` not `$var:`. Keep the code compatible with Windows PowerShell 5.1.
 
-**Known gaps and debts.** The table under [Known issues](#known-issues); also: no Pester unit tests that run without AD; no documented least-privilege set (Domain Admin is required by the code); silo enrollment may need a second step (see Operator tools); a tutorial step suggests moving domain controllers into `OU=_LZ_T0_Devices`, which is not supported by any other part of this repository (see [TUTORIAL.md](TUTORIAL.md)).
+**Known gaps and debts.** The table under [Known issues](#known-issues); also: unit tests that run without AD cover only the helpers and static checks above; no documented least-privilege set (Domain Admin is required by the code); silo enrollment may need a second step (see Operator tools); a tutorial step suggests moving domain controllers into `OU=_LZ_T0_Devices`, which is not supported by any other part of this repository (see [TUTORIAL.md](TUTORIAL.md)).
 
 **Depends on.** RSAT ActiveDirectory and GroupPolicy modules, a Windows Server 2016+ functional level, a KDS root key (gMSAs), Pester 5 (tests), a code-signing certificate (AllSigned only).
 
