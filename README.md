@@ -4,7 +4,7 @@ Modular PowerShell deployer for an Enterprise Access Model (EAM) tiered Landing 
 
 **Who it is for:** a Windows / Active Directory administrator who wants tier 0 / 1 / 2 OUs, tier admin groups, delegated permissions, authentication policies and silos, and GPO scaffolding in place before moving accounts and machines into tiers.
 
-**Status:** the scripts report version 2.6 (`[v2.6]` banner). There are no release tags; history is in [CHANGELOG.md](CHANGELOG.md). Read [Known issues](#known-issues) before running anything. Two scripts do not currently parse and the removal logging is wrong.
+**Status:** the orchestrator reports version 2.6 (`[v2.6]` banner); releases are tagged `v2.5.0` and `v2.6.0`, and history is in [CHANGELOG.md](CHANGELOG.md). Read [Known issues](#known-issues) before running anything. Two scripts do not currently parse and the removal logging is wrong.
 
 **What it does not do:** it does not move existing objects into the structure, enroll accounts in silos, create a KDS root key, populate GPOs beyond the optional T0 hardening template, or touch trusts, other forests or Entra ID. See [What is out of scope](#what-is-out-of-scope). Security details: [SECURITY.md](SECURITY.md). A longer walkthrough for operators: [TUTORIAL.md](TUTORIAL.md).
 
@@ -260,7 +260,7 @@ New-LZDeploymentReport.ps1     -- Operator tool: queries live AD and produces Ma
 
 Helpers\
   Write-LZLog.ps1              -- Structured logging helper (console + CSV + Event Log)
-  Test-LZPreFlight.ps1         -- Pre-flight validation (domain, Domain Admin, functional level, List Object Mode, KDS key and its replication, existing deployment)
+  Test-LZPreFlight.ps1         -- Pre-flight validation, 7 checks (domain, Domain Admin, functional level, List Object Mode, KDS key and its replication, existing deployment)
   Sign-LZScripts.ps1           -- Authenticode signing helper (operator responsibility)
 
 Modules\
@@ -401,7 +401,7 @@ Requires Pester 5.x (`Install-Module Pester -Force -SkipPublisherCheck`).
 .\Tests\Invoke-LZPesterTests.ps1 -TierCount 3 -OutputPath C:\Logs\LZ-Pester.xml
 ```
 
-The tests check the deployed state against the live AD environment, so they need a domain, the RSAT module, and a deployment to test. Structural tests are expected to pass on a clean deployment. Five T0 hardening tests skip by design until `Deploy-LZ-T0Hardening.ps1` has been run.
+The tests check the deployed state against the live AD environment, so they need a domain, the RSAT module, and a deployment to test. All structural tests pass on a clean deployment (not re-run for this documentation pass, which had no AD). Five T0 hardening tests skip by design until `Deploy-LZ-T0Hardening.ps1` has been run.
 
 Run only the canary tests with:
 
@@ -504,7 +504,7 @@ and update the parameter names in `Deploy-LZ-AuthPolicies.ps1` accordingly. (Tha
 | Log action names and event IDs | `Helpers\Write-LZLog.ps1` |
 | Pre-flight checks | `Helpers\Test-LZPreFlight.ps1` |
 
-**Build, test, release.** There is no build or CI. Test by running the deployer with `-WhatIf` and then for real in a lab domain, then `Tests\Invoke-LZPesterTests.ps1`. Release by updating [CHANGELOG.md](CHANGELOG.md) and the version banner in `Deploy-ADLandingZone.ps1`; there is no tagging or packaging step documented. If you ship to an AllSigned environment, re-sign every file after each edit.
+**Build, test, release.** There is no build or CI. Test by running the deployer with `-WhatIf` and then for real in a lab domain, then `Tests\Invoke-LZPesterTests.ps1`. Release by updating [CHANGELOG.md](CHANGELOG.md) and the version banner in `Deploy-ADLandingZone.ps1`; tag the release commit (`v2.6.0` is the latest tag); there is no packaging step. If you ship to an AllSigned environment, re-sign every file after each edit.
 
 **Conventions.** New objects need an existence check, a `ShouldProcess` guard, and log rows for Created / Skipped / WhatIf. Add any new log action to the `ValidateSet` in `Write-LZLog` first (see Known issues item 3). In double-quoted strings, write `${var}:` not `$var:`. Keep the code compatible with Windows PowerShell 5.1.
 
