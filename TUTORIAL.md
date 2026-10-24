@@ -61,6 +61,12 @@ prevent lateral movement:
   The value of the silo at T2 is boundary enforcement and auditability, not
   TGT reduction.
 
+  Only the T0 policy is enforced. The T1 and T2 policies are created in audit
+  mode (`Enforce` is not set), so their TGT values record what would happen
+  rather than limiting tickets. Switch a policy to enforced yourself once you
+  have reviewed the audit events. Policies and silos exist only for tiers 0 to
+  2, even if you deploy more tiers.
+
 ### B. The Protected Users Group
 
 `GS-LZ-T0-Admins` is automatically nested into the built-in `Protected Users`
@@ -99,7 +105,10 @@ session has all required permissions:
 .\CC-PreFlight-Test.ps1
 ```
 
-All 11 checks must pass before proceeding. Resolve any failures -- they
+All 11 checks must pass before proceeding. This script is not read-only: it
+creates and deletes temporary objects (two `_LZ_CC_*` OUs, a group, an
+authentication policy and silo, and a user that is briefly added to Protected
+Users). A failed check can leave one behind; delete leftovers by hand. Resolve any failures -- they
 indicate permission gaps that will cause the deployer to fail mid-run, which is
 harder to recover from than fixing them upfront.
 
@@ -140,10 +149,11 @@ from the CSV, so a zero-row log despite console output indicates a log write
 problem worth investigating before proceeding.
 
 Every action is also written to the Windows Application Event Log under the
-source `ADLandingZone` (Event IDs 1001–1007). These entries are immutable
-after the fact — unlike the CSV, they cannot be silently edited — which
-satisfies most change-record retention requirements and makes the deployment
-consumable by SIEM tooling without additional integration work.
+source `ADLandingZone` (Event IDs 1001–1007). These entries are harder to
+edit after the fact than the CSV (a local administrator can still clear the
+log), and they make the deployment readable by SIEM tooling without extra
+integration work. Forward them off the machine if you need a tamper-resistant
+record.
 
 ### Step 3: T0 GPO Hardening (Operator Action)
 
@@ -151,8 +161,12 @@ After deployment, the `LZ-T0-GPO` scaffold exists but contains no security
 settings. Run the hardening script to populate it:
 
 ```powershell
-.\Deploy-LZ-T0Hardening.ps1
+.\Deploy-LZ-T0Hardening.ps1 -LogPath C:\Logs\LZ-T0Hardening.csv
 ```
+
+`-LogPath` is mandatory. The script needs a deployment with at least 3 tiers.
+The Restricted Groups list it writes is authoritative for `BUILTIN\Administrators`
+on in-scope T0 machines; test on one machine first.
 
 **Run this only after verifying that all T0 admin accounts authenticate
 exclusively via Kerberos.** The hardening template denies interactive and RDP
@@ -172,6 +186,10 @@ Protected Users, gMSAs, and GPO scaffolding — in a single reviewable artifact:
 .\New-LZDeploymentReport.ps1 -TierCount 3 -OutputPath C:\Reports\LZ-Report.md
 ```
 
+**Currently broken:** the script has a syntax error (line 641) and does not
+run. See "Known issues" in the README. Use the manual checks under
+"Verification" in the README until it is fixed.
+
 The script is read-only. It queries live AD and writes a structured Markdown file
 at `OutputPath`. Use it to:
 
@@ -188,7 +206,12 @@ The Landing Zone provides the structure, but you must move objects into it.
 This is a deliberate manual phase -- the deployer does not touch existing
 objects.
 
-1. Move Domain Controllers and PKI servers to `OU=_LZ_T0_Devices`.
+1. Move PKI servers and other T0 servers to `OU=_LZ_T0_Devices`. Do not move
+   domain controllers without testing first: they are normally in the Domain
+   Controllers OU, where the Default Domain Controllers Policy is linked, and
+   tier OUs block GPO inheritance. This repository does not cover what that
+   does to DC policy. (An earlier version of this step said to move domain
+   controllers here.)
 2. Move T0 admin accounts to `OU=_LZ_T0_Accounts`.
 3. Move application and infrastructure servers to `OU=_LZ_T1_Devices`.
 4. Move T1 admin accounts to `OU=_LZ_T1_Accounts`.
@@ -223,11 +246,11 @@ requirements defined in Section 2A.
 | OU Structure | Often flat / default containers | Tiered (T0/T1/T2) for physical isolation |
 | Admin Rights | Broad (e.g., Domain Admins) | Scoped via per-tier Admin groups and ACL delegation |
 | Lateral Movement | High risk -- Admins can log in anywhere | Blocked via Authentication Silos and Policies |
-| TGT Lifetime | Default 10 hours | T0: 4 hrs / T1: 8 hrs / T2: 10 hrs (silo-enforced) |
-| Legacy Auth (NTLM) | Often permitted | Blocked for T0 via Protected Users; audited at T1/T2 |
+| TGT Lifetime | Default 10 hours | T0: 4 hrs (enforced) / T1: 8 hrs and T2: 10 hrs (audit mode only) |
+| Legacy Auth (NTLM) | Often permitted | Blocked for T0 via Protected Users; not restricted at T1/T2 (their policies are audit-only and set no NTLM rule) |
 | Read Access | Often unmanaged | Scoped via tiered Reader groups; LOM-compatible ACLs |
 | PAW Enforcement | None | Domain-joined baseline (v1); PAW group restriction via `GS-LZ-T0-Devices` (v2) |
-| Deployment audit trail | None / file-based | Event Log (immutable) + CSV + console; SIEM-consumable |
+| Deployment audit trail | None / file-based | Event Log (harder to edit than the CSV) + CSV + console; SIEM-consumable |
 | Change preview | None | `-WhatIf` previews all phases; CSV records the proposed change set |
 
 ---
