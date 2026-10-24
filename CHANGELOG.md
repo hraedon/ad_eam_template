@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Documentation
+- Rewrote `README.md` in plain language: prerequisites with permissions, quickstart, verification, removal and rollback, troubleshooting, and a maintainer handover section.
+- Added `SECURITY.md` (rights granted and to whom, other security-relevant changes, how to report).
+- Corrected statements found to disagree with the code:
+  - `CC-PreFlight-Test.ps1` is not read-only: it creates and deletes temporary objects.
+  - `Deploy-LZ-T0Hardening.ps1` needs `-LogPath`, needs at least 3 tiers, and is not idempotent as claimed (its hash never matches).
+  - Authentication policies and silos exist only for tiers 0 to 2; T1 and T2 policies are audit-only.
+  - `GS-LZ-Global-Readers` is applied to the tier OUs only.
+  - `Remove-ADLandingZone.ps1` accepts `-TierCount` 2 to 9 and has no usable `-WhatIf`.
+  - `New-LZDeploymentReport.ps1` and `Modules/Remove-LZ-GPOs.ps1` do not currently parse; removal logs deletions as errors because `Write-LZLog` does not accept the action `Removed`. These are documented under "Known issues" in the README and are not fixed.
+- Corrected `TUTORIAL.md` for the same points.
+
 ## [v2.6.0] — 2026-03-11
 
 ### Added
